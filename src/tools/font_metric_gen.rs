@@ -837,7 +837,7 @@ fn main() {
             .filter_map(|e| e.ok())
             .filter(|e| {
                 let name = e.file_name().to_string_lossy().to_lowercase();
-                name.ends_with(".ttf") || name.ends_with(".otf")
+                name.ends_with(".ttf") || name.ends_with(".otf") || name.ends_with(".ttc")
             })
             .collect();
         entries.sort_by_key(|e| e.file_name());
