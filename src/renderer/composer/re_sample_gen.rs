@@ -18,27 +18,98 @@ mod tests {
         generate_sample_with_options(template_path, output_path, texts, None, None)
     }
 
-    /// 폰트별 템플릿 경로 매핑
-    /// 한컴에서 직접 만든 폰트별 빈 문서를 템플릿으로 사용
-    fn font_template(font_name: &str) -> &'static str {
-        match font_name {
-            "바탕" => "template/blank-batang.hwp",
-            "바탕체" => "template/blank-batangche.hwp",
-            "돋움" | "돋움체" => "template/blank-dotum.hwp",  // 돋움체 템플릿 없으면 돋움 사용
-            "맑은 고딕" => "template/blank-malgun.hwp",
-            _ => "template/empty.hwp", // 기본 함초롬바탕
+    /// 폰트를 코드로 변경 (한컴의 방식을 재현)
+    /// ko_font: 한글 폰트, en_font: 영문 폰트 (None이면 한글과 동일)
+    fn apply_font(core: &mut crate::document_core::DocumentCore, ko_font: &str, en_font: Option<&str>) {
+        let en = en_font.unwrap_or(ko_font);
+        let doc = &mut core.document;
+
+        // 1. font_faces에 새 폰트 추가 (이미 있으면 인덱스 반환)
+        let add_font = |fonts: &mut Vec<crate::model::style::Font>, name: &str| -> u16 {
+            if let Some(idx) = fonts.iter().position(|f| f.name == name) {
+                return idx as u16;
+            }
+            fonts.push(crate::model::style::Font {
+                raw_data: None,
+                name: name.to_string(),
+                alt_type: 0,
+                alt_name: None,
+                default_name: None,
+            });
+            (fonts.len() - 1) as u16
+        };
+
+        // 모든 언어 카테고리에 폰트 추가
+        let mut ko_ids = [0u16; 7];
+        let mut en_ids = [0u16; 7];
+        for (lang_idx, lang_fonts) in doc.doc_info.font_faces.iter_mut().enumerate() {
+            ko_ids[lang_idx] = add_font(lang_fonts, ko_font);
+            en_ids[lang_idx] = add_font(lang_fonts, en);
         }
+
+        // 2. CharShape의 font_ids 설정
+        // 문단이 참조하는 CharShape를 찾아 font_ids 변경
+        let para_cs_id = doc.sections[0].paragraphs[0].char_shapes
+            .first().map(|cs| cs.char_shape_id as usize).unwrap_or(0);
+
+        if para_cs_id < doc.doc_info.char_shapes.len() {
+            let cs = &mut doc.doc_info.char_shapes[para_cs_id];
+            for lang in 0..7 {
+                cs.font_ids[lang] = if lang == 1 { en_ids[lang] } else { ko_ids[lang] };
+            }
+            cs.raw_data = None;
+        }
+
+        // 3. raw_stream 무효화
+        doc.doc_info.raw_stream = None;
+        doc.doc_info.raw_stream_dirty = true;
     }
 
-    /// 폰트별 템플릿 사용
+    /// 폰트 지정 샘플 생성
     fn generate_sample_with_font(
         _template_path: &str,
         output_path: &str,
         texts: &[&str],
         font_name: Option<&str>,
     ) -> Result<(), String> {
-        let template = font_name.map(font_template).unwrap_or("template/empty.hwp");
-        generate_sample_with_options(template, output_path, texts, None, None)
+        generate_sample_with_font_pair(output_path, texts, font_name, None, None)
+    }
+
+    /// 한글/영문 폰트 별도 지정 샘플 생성
+    fn generate_sample_with_font_pair(
+        output_path: &str,
+        texts: &[&str],
+        ko_font: Option<&str>,
+        en_font: Option<&str>,
+        alignment: Option<crate::model::style::Alignment>,
+    ) -> Result<(), String> {
+        generate_sample_with_options("template/empty.hwp", output_path, texts, ko_font, alignment)?;
+
+        // 폰트 적용이 필요한 경우 저장된 파일을 다시 로드하여 폰트 변경
+        if let Some(ko) = ko_font {
+            let data = fs::read(output_path).map_err(|e| e.to_string())?;
+            let mut core = crate::document_core::DocumentCore::from_bytes(&data)
+                .map_err(|e| format!("{:?}", e))?;
+            apply_font(&mut core, ko, en_font);
+            core.document.sections[0].raw_stream = None;
+
+            // LINE_SEG 채워진 버전 저장
+            let bytes = crate::serializer::serialize_document(&core.document)
+                .map_err(|e| format!("{:?}", e))?;
+            fs::write(output_path, &bytes).map_err(|e| e.to_string())?;
+
+            // LINE_SEG 비운 버전 저장
+            let empty_path = output_path.replace(".hwp", "-empty.hwp");
+            for para in &mut core.document.sections[0].paragraphs {
+                para.line_segs = vec![crate::model::paragraph::LineSeg::default()];
+            }
+            core.document.sections[0].raw_stream = None;
+            let empty_bytes = crate::serializer::serialize_document(&core.document)
+                .map_err(|e| format!("{:?}", e))?;
+            fs::write(&empty_path, &empty_bytes).map_err(|e| e.to_string())?;
+            eprintln!("생성: {} (폰트: ko={}, en={})", output_path, ko, en_font.unwrap_or(ko));
+        }
+        Ok(())
     }
 
     /// 템플릿에 DocumentCore API로 텍스트 삽입하여 샘플 생성
@@ -329,13 +400,16 @@ mod tests {
     #[test]
     fn test_gen_re_english_font_variations() {
         // 가변폭 + 고정폭 폰트로 순수 영문 테스트
-        // 보유 템플릿 기반 폰트 테스트
-        let fonts = [
-            ("batang", "바탕"),        // 가변폭, 한컴 HFT 아닌 윈도우 폰트
-            ("batangche", "바탕체"),    // 고정폭
-            ("dotum", "돋움"),         // 가변폭
-            ("malgun", "맑은 고딕"),    // 가변폭
-            ("hcr-batang", "함초롬바탕"), // 가변폭, 한컴 HFT (기본 템플릿)
+        // 한글/영문 폰트 조합 테스트
+        let fonts: Vec<(&str, &str, Option<&str>)> = vec![
+            // (접미사, 한글폰트, 영문폰트)
+            ("batang", "바탕", None),              // 한영 동일: 바탕
+            ("batangche", "바탕체", None),          // 한영 동일: 바탕체 (고정폭)
+            ("dotum", "돋움", None),               // 한영 동일: 돋움
+            ("malgun", "맑은 고딕", None),          // 한영 동일: 맑은 고딕
+            ("batang-arial", "바탕", Some("Arial")), // 한글=바탕, 영문=Arial
+            ("dotum-times", "돋움", Some("Times New Roman")), // 한글=돋움, 영문=Times
+            ("malgun-courier", "맑은 고딕", Some("Courier New")), // 한글=맑은고딕, 영문=Courier(고정폭)
         ];
 
         // 순수 영문 (공백 없이 연속 — char_level_break 경로)
@@ -347,18 +421,18 @@ mod tests {
         let mixed = "한글과English가Mixed된Text입니다Test문장Sentence한글English한글English";
         let mixed_long = mixed.repeat(3);
 
-        for (suffix, font_name) in &fonts {
+        for (suffix, ko_font, en_font) in &fonts {
             // 영문 연속 (공백 없음)
             let output = format!("samples/re-eng-nospace-{}.hwp", suffix);
-            let _ = generate_sample_with_font("", &output, &[&latin_nospace], Some(font_name));
+            let _ = generate_sample_with_font_pair(&output, &[&latin_nospace], Some(ko_font), *en_font, None);
 
             // 영문 단어 (공백 있음)
             let output = format!("samples/re-eng-words-{}.hwp", suffix);
-            let _ = generate_sample_with_font("", &output, &[&latin_words_long], Some(font_name));
+            let _ = generate_sample_with_font_pair(&output, &[&latin_words_long], Some(ko_font), *en_font, None);
 
             // 한영 혼합
             let output = format!("samples/re-eng-mixed-{}.hwp", suffix);
-            let _ = generate_sample_with_font("", &output, &[&mixed_long], Some(font_name));
+            let _ = generate_sample_with_font_pair(&output, &[&mixed_long], Some(ko_font), *en_font, None);
         }
     }
 
