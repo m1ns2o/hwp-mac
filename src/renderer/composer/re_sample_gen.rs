@@ -390,7 +390,7 @@ mod tests {
 
             // char_shapes: font_ids 확인
             for (ci, cs) in doc.doc_info.char_shapes.iter().enumerate() {
-                eprintln!("  char_shapes[{}]: font_ids={:?} base_size={}", ci, cs.font_ids, cs.base_size);
+                eprintln!("  char_shapes[{}]: font_ids={:?} base_size={} spacings={:?} ratios={:?}", ci, cs.font_ids, cs.base_size, cs.spacings, cs.ratios);
             }
         }
     }
@@ -433,6 +433,25 @@ mod tests {
             // 한영 혼합
             let output = format!("samples/re-eng-mixed-{}.hwp", suffix);
             let _ = generate_sample_with_font_pair(&output, &[&mixed_long], Some(ko_font), *en_font, None);
+        }
+    }
+
+    // ─── 한영 전환 정밀 분석 샘플 ───
+
+    #[test]
+    fn test_gen_re_mixed_precision() {
+        // 전환점 수를 제어한 샘플: 한영 전환 간격 역공학
+        let samples = [
+            // (접미사, 텍스트, 설명)
+            ("1tr", "가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파ABCDEFGHIJKLMN", "전환1회: 한글43+영문14"),
+            ("2tr", "가나다라마바사아자차카타파ABCDEFG가나다라마바사아자차카타파ABCDEFGHIJKLMNOPQ", "전환2회"),
+            ("0tr", "가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사아자차카타파하가나다라마바사", "전환0: 한글만"),
+        ];
+
+        for (suffix, text, desc) in &samples {
+            let output = format!("samples/re-mixed-{}.hwp", suffix);
+            let _ = generate_sample_with_font_pair(&output, &[text], Some("돋움"), None, None);
+            eprintln!("  {}: {}", suffix, desc);
         }
     }
 
