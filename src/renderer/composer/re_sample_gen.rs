@@ -76,6 +76,7 @@ mod tests {
     }
 
     /// 한글/영문 폰트 별도 지정 샘플 생성
+    /// 한컴 템플릿이 있으면 사용, 없으면 기본 템플릿 + apply_font
     fn generate_sample_with_font_pair(
         output_path: &str,
         texts: &[&str],
@@ -83,33 +84,21 @@ mod tests {
         en_font: Option<&str>,
         alignment: Option<crate::model::style::Alignment>,
     ) -> Result<(), String> {
-        generate_sample_with_options("template/empty.hwp", output_path, texts, ko_font, alignment)?;
+        // 폰트 조합에 맞는 한컴 템플릿 선택
+        let template = match (ko_font, en_font) {
+            (Some("바탕"), Some("Arial")) => "template/blank-batang-arial.hwp",
+            (Some("맑은 고딕"), Some("Times New Roman")) => "template/blank-malgun-times.hwp",
+            (Some(ko), None) => match ko {
+                "바탕" => "template/blank-batang.hwp",
+                "바탕체" => "template/blank-batangche.hwp",
+                "돋움" => "template/blank-dotum.hwp",
+                "맑은 고딕" => "template/blank-malgun.hwp",
+                _ => "template/empty.hwp",
+            },
+            _ => "template/empty.hwp",
+        };
 
-        // 폰트 적용이 필요한 경우 저장된 파일을 다시 로드하여 폰트 변경
-        if let Some(ko) = ko_font {
-            let data = fs::read(output_path).map_err(|e| e.to_string())?;
-            let mut core = crate::document_core::DocumentCore::from_bytes(&data)
-                .map_err(|e| format!("{:?}", e))?;
-            apply_font(&mut core, ko, en_font);
-            core.document.sections[0].raw_stream = None;
-
-            // LINE_SEG 채워진 버전 저장
-            let bytes = crate::serializer::serialize_document(&core.document)
-                .map_err(|e| format!("{:?}", e))?;
-            fs::write(output_path, &bytes).map_err(|e| e.to_string())?;
-
-            // LINE_SEG 비운 버전 저장
-            let empty_path = output_path.replace(".hwp", "-empty.hwp");
-            for para in &mut core.document.sections[0].paragraphs {
-                para.line_segs = vec![crate::model::paragraph::LineSeg::default()];
-            }
-            core.document.sections[0].raw_stream = None;
-            let empty_bytes = crate::serializer::serialize_document(&core.document)
-                .map_err(|e| format!("{:?}", e))?;
-            fs::write(&empty_path, &empty_bytes).map_err(|e| e.to_string())?;
-            eprintln!("생성: {} (폰트: ko={}, en={})", output_path, ko, en_font.unwrap_or(ko));
-        }
-        Ok(())
+        generate_sample_with_options(template, output_path, texts, None, alignment)
     }
 
     /// 템플릿에 DocumentCore API로 텍스트 삽입하여 샘플 생성
@@ -370,6 +359,7 @@ mod tests {
             "template/blank-batangche.hwp",
             "template/blank-malgun.hwp",
             "samples/re-eng-mixed-batang-arial-empty.hwp",
+            "samples/re-mixed-malgun-timesnew-hancom.hwp",
         ];
 
         for path in &templates {
@@ -408,7 +398,7 @@ mod tests {
             ("dotum", "돋움", None),               // 한영 동일: 돋움
             ("malgun", "맑은 고딕", None),          // 한영 동일: 맑은 고딕
             ("batang-arial", "바탕", Some("Arial")), // 한글=바탕, 영문=Arial
-            ("dotum-times", "돋움", Some("Times New Roman")), // 한글=돋움, 영문=Times
+            ("malgun-times", "맑은 고딕", Some("Times New Roman")), // 한글=맑은고딕, 영문=Times (한컴 템플릿 사용)
             ("malgun-courier", "맑은 고딕", Some("Courier New")), // 한글=맑은고딕, 영문=Courier(고정폭)
         ];
 
