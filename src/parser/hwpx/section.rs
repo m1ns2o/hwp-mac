@@ -159,9 +159,10 @@ fn parse_paragraph(
                         char_shape_changes.push((utf16_pos, current_char_shape_id));
                     }
                     b"t" => {
-                        // 텍스트 읽기
-                        let text = read_text_content(reader)?;
+                        // 텍스트 읽기 (탭 확장 데이터 포함)
+                        let (text, tab_exts) = read_text_content_with_tabs(reader)?;
                         text_parts.push(text);
+                        para.tab_extended.extend(tab_exts);
                     }
                     b"tbl" => {
                         // 표 파싱
@@ -238,6 +239,17 @@ fn parse_paragraph(
                     }
                     b"tab" => {
                         text_parts.push("\t".to_string());
+                        // HWPX 인라인 탭 속성 파싱 → tab_extended에 저장
+                        let mut ext = [0u16; 7];
+                        for attr in ce.attributes().flatten() {
+                            match attr.key.as_ref() {
+                                b"width" => ext[0] = parse_u16(&attr),
+                                b"leader" => ext[1] = parse_u16(&attr),
+                                b"type" => ext[2] = parse_u16(&attr),
+                                _ => {}
+                            }
+                        }
+                        para.tab_extended.push(ext);
                     }
                     b"lineseg" => {
                         // 단독 lineseg (linesegarray 밖에 나올 경우)
@@ -448,8 +460,15 @@ fn parse_lineseg_element(e: &quick_xml::events::BytesStart) -> LineSeg {
 }
 
 /// <hp:t> 텍스트 컨텐츠를 읽는다.
+/// 탭 확장 데이터도 함께 반환 (HWPX 인라인 탭의 leader/type/width)
 fn read_text_content(reader: &mut Reader<&[u8]>) -> Result<String, HwpxError> {
+    let (text, _) = read_text_content_with_tabs(reader)?;
+    Ok(text)
+}
+
+fn read_text_content_with_tabs(reader: &mut Reader<&[u8]>) -> Result<(String, Vec<[u16; 7]>), HwpxError> {
     let mut text = String::new();
+    let mut tab_ext_buf: Vec<[u16; 7]> = Vec::new();
     let mut buf = Vec::new();
 
     loop {
@@ -466,7 +485,20 @@ fn read_text_content(reader: &mut Reader<&[u8]>) -> Result<String, HwpxError> {
                 let cname = ce.name(); let local = local_name(cname.as_ref());
                 match local {
                     b"lineBreak" | b"columnBreak" => text.push('\n'),
-                    b"tab" => text.push('\t'),
+                    b"tab" => {
+                        text.push('\t');
+                        // HWPX 인라인 탭 속성 → tab_ext_buf에 임시 저장
+                        let mut ext = [0u16; 7];
+                        for attr in ce.attributes().flatten() {
+                            match attr.key.as_ref() {
+                                b"width" => ext[0] = parse_u16(&attr),
+                                b"leader" => ext[1] = parse_u16(&attr),
+                                b"type" => ext[2] = parse_u16(&attr),
+                                _ => {}
+                            }
+                        }
+                        tab_ext_buf.push(ext);
+                    }
                     b"nbSpace" => text.push('\u{00A0}'),
                     b"fwSpace" => text.push('\u{2007}'),
                     _ => {}
@@ -479,7 +511,7 @@ fn read_text_content(reader: &mut Reader<&[u8]>) -> Result<String, HwpxError> {
         buf.clear();
     }
 
-    Ok(text)
+    Ok((text, tab_ext_buf))
 }
 
 // ─── Table ───

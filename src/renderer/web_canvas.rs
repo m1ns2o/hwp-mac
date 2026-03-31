@@ -1285,38 +1285,65 @@ impl Renderer for WebCanvasRenderer {
             }
         }
 
-        // 탭 리더(채움 기호) 렌더링
+        // 탭 리더(채울 모양) 렌더링 — 12종
+        // 0=없음, 1=실선, 2=파선, 3=점선, 4=일점쇄선, 5=이점쇄선,
+        // 6=긴파선, 7=원형점선, 8=이중실선, 9=얇고굵은이중선,
+        // 10=굵고얇은이중선, 11=얇고굵고얇은삼중선
         for leader in &style.tab_leaders {
             if leader.fill_type == 0 { continue; }
             let lx1 = x + leader.start_x;
             let lx2 = x + leader.end_x;
-            let ly = y - font_size * 0.15;
+            let ly = y - font_size * 0.35; // 글자 세로 중앙
+            let stroke_color = color_to_css(style.color);
 
-            let dash = match leader.fill_type {
-                1 => { // 실선
-                    let arr = js_sys::Array::new();
-                    arr
-                }
-                2 => { // 파선
-                    let arr = js_sys::Array::new();
-                    arr.push(&JsValue::from(4.0));
-                    arr.push(&JsValue::from(3.0));
-                    arr
-                }
-                _ => { // 점선 (3 또는 기타)
-                    let arr = js_sys::Array::new();
-                    arr.push(&JsValue::from(1.0));
-                    arr.push(&JsValue::from(2.5));
-                    arr
-                }
+            let draw_line = |ctx: &web_sys::CanvasRenderingContext2d, y: f64, width: f64, dash: &[f64]| {
+                let arr = js_sys::Array::new();
+                for &d in dash { arr.push(&JsValue::from(d)); }
+                let _ = ctx.set_line_dash(&arr);
+                ctx.set_line_width(width);
+                ctx.begin_path();
+                ctx.move_to(lx1, y);
+                ctx.line_to(lx2, y);
+                ctx.stroke();
             };
-            let _ = self.ctx.set_line_dash(&dash);
-            self.ctx.begin_path();
-            self.ctx.move_to(lx1, ly);
-            self.ctx.line_to(lx2, ly);
-            self.ctx.set_stroke_style_str(&color_to_css(style.color));
-            self.ctx.set_line_width(0.5);
-            self.ctx.stroke();
+
+            self.ctx.set_stroke_style_str(&stroke_color);
+            match leader.fill_type {
+                1 => draw_line(&self.ctx, ly, 0.5, &[]),                     // 실선
+                2 => draw_line(&self.ctx, ly, 0.5, &[3.0, 3.0]),             // 파선
+                3 => draw_line(&self.ctx, ly, 0.5, &[1.0, 2.0]),             // 점선
+                4 => draw_line(&self.ctx, ly, 0.5, &[6.0, 2.0, 1.0, 2.0]),   // 일점쇄선
+                5 => draw_line(&self.ctx, ly, 0.5, &[6.0, 2.0, 1.0, 2.0, 1.0, 2.0]), // 이점쇄선
+                6 => draw_line(&self.ctx, ly, 0.5, &[8.0, 4.0]),             // 긴파선
+                7 => {
+                    // 원형점선 ●●●
+                    self.ctx.set_line_cap("round");
+                    draw_line(&self.ctx, ly, 0.7, &[0.1, 2.5]);
+                    self.ctx.set_line_cap("butt");
+                }
+                8 => {
+                    // 이중실선
+                    draw_line(&self.ctx, ly - 1.0, 0.3, &[]);
+                    draw_line(&self.ctx, ly + 1.0, 0.3, &[]);
+                }
+                9 => {
+                    // 얇고 굵은 이중선
+                    draw_line(&self.ctx, ly - 1.2, 0.3, &[]);
+                    draw_line(&self.ctx, ly + 0.8, 0.8, &[]);
+                }
+                10 => {
+                    // 굵고 얇은 이중선
+                    draw_line(&self.ctx, ly - 0.8, 0.8, &[]);
+                    draw_line(&self.ctx, ly + 1.2, 0.3, &[]);
+                }
+                11 => {
+                    // 얇고 굵고 얇은 삼중선
+                    draw_line(&self.ctx, ly - 2.0, 0.3, &[]);
+                    draw_line(&self.ctx, ly, 0.8, &[]);
+                    draw_line(&self.ctx, ly + 2.0, 0.3, &[]);
+                }
+                _ => draw_line(&self.ctx, ly, 0.5, &[1.0, 2.0]),             // 폴백: 점선
+            }
             let _ = self.ctx.set_line_dash(&js_sys::Array::new());
         }
     }

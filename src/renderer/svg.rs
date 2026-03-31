@@ -1575,22 +1575,105 @@ impl Renderer for SvgRenderer {
             if leader.fill_type == 0 { continue; }
             let lx1 = x + leader.start_x;
             let lx2 = x + leader.end_x;
-            let ly = y - font_size * 0.15; // 베이스라인 약간 위
-            let dasharray = match leader.fill_type {
-                1 => "none",        // 실선
-                2 => "4 3",         // 파선
-                _ => "1 2.5",   // 점선 (기본)
-            };
-            if dasharray == "none" {
-                self.output.push_str(&format!(
-                    "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.5\"/>\n",
-                    lx1, ly, lx2, ly, color,
-                ));
-            } else {
-                self.output.push_str(&format!(
-                    "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.5\" stroke-dasharray=\"{}\"/>\n",
-                    lx1, ly, lx2, ly, color, dasharray,
-                ));
+            let ly = y - font_size * 0.35; // 글자 세로 중앙 (베이스라인에서 x-height 절반)
+            // 채울 모양 12종: 0=없음, 1=실선, 2=파선, 3=점선, 4=일점쇄선,
+            // 5=이점쇄선, 6=긴파선, 7=원형점선, 8=이중실선,
+            // 9=얇고굵은이중선, 10=굵고얇은이중선, 11=얇고굵고얇은삼중선
+            match leader.fill_type {
+                1 => {
+                    // 실선
+                    self.output.push_str(&format!(
+                        "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.5\"/>\n",
+                        lx1, ly, lx2, ly, color,
+                    ));
+                }
+                2 => {
+                    // 파선 - - -
+                    self.output.push_str(&format!(
+                        "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.5\" stroke-dasharray=\"3 3\"/>\n",
+                        lx1, ly, lx2, ly, color,
+                    ));
+                }
+                3 => {
+                    // 점선 ···
+                    self.output.push_str(&format!(
+                        "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.5\" stroke-dasharray=\"1 2\"/>\n",
+                        lx1, ly, lx2, ly, color,
+                    ));
+                }
+                4 => {
+                    // 일점쇄선 -·-·
+                    self.output.push_str(&format!(
+                        "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.5\" stroke-dasharray=\"6 2 1 2\"/>\n",
+                        lx1, ly, lx2, ly, color,
+                    ));
+                }
+                5 => {
+                    // 이점쇄선 -··-··
+                    self.output.push_str(&format!(
+                        "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.5\" stroke-dasharray=\"6 2 1 2 1 2\"/>\n",
+                        lx1, ly, lx2, ly, color,
+                    ));
+                }
+                6 => {
+                    // 긴파선 ── ──
+                    self.output.push_str(&format!(
+                        "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.5\" stroke-dasharray=\"8 4\"/>\n",
+                        lx1, ly, lx2, ly, color,
+                    ));
+                }
+                7 => {
+                    // 원형점선 ●●●
+                    self.output.push_str(&format!(
+                        "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.7\" stroke-dasharray=\"0.1 2.5\" stroke-linecap=\"round\"/>\n",
+                        lx1, ly, lx2, ly, color,
+                    ));
+                }
+                8 => {
+                    // 이중실선 ═══
+                    self.output.push_str(&format!(
+                        "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.3\"/>\n\
+                         <line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.3\"/>\n",
+                        lx1, ly - 1.0, lx2, ly - 1.0, color,
+                        lx1, ly + 1.0, lx2, ly + 1.0, color,
+                    ));
+                }
+                9 => {
+                    // 얇고 굵은 이중선
+                    self.output.push_str(&format!(
+                        "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.3\"/>\n\
+                         <line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.8\"/>\n",
+                        lx1, ly - 1.2, lx2, ly - 1.2, color,
+                        lx1, ly + 0.8, lx2, ly + 0.8, color,
+                    ));
+                }
+                10 => {
+                    // 굵고 얇은 이중선
+                    self.output.push_str(&format!(
+                        "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.8\"/>\n\
+                         <line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.3\"/>\n",
+                        lx1, ly - 0.8, lx2, ly - 0.8, color,
+                        lx1, ly + 1.2, lx2, ly + 1.2, color,
+                    ));
+                }
+                11 => {
+                    // 얇고 굵고 얇은 삼중선
+                    self.output.push_str(&format!(
+                        "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.3\"/>\n\
+                         <line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.8\"/>\n\
+                         <line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.3\"/>\n",
+                        lx1, ly - 2.0, lx2, ly - 2.0, color,
+                        lx1, ly, lx2, ly, color,
+                        lx1, ly + 2.0, lx2, ly + 2.0, color,
+                    ));
+                }
+                _ => {
+                    // 알 수 없는 타입: 점선 폴백
+                    self.output.push_str(&format!(
+                        "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.5\" stroke-dasharray=\"1 2\"/>\n",
+                        lx1, ly, lx2, ly, color,
+                    ));
+                }
             }
         }
     }
