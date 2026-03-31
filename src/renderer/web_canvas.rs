@@ -1821,19 +1821,54 @@ impl WebCanvasRenderer {
                 self.draw_single_canvas_line(x1, y1, x2, y2, color, 0.5, &[]);
                 self.draw_single_canvas_line(x1, y1 + 1.5, x2, y2 + 1.5, color, 0.5, &[]);
             }
+            11 => {
+                // 물결선
+                self.draw_wave_canvas(x1, y1, x2, color, 0.7, 1.5, 6.0);
+            }
+            12 => {
+                // 이중물결선
+                self.draw_wave_canvas(x1, y1 - 1.0, x2, color, 0.5, 1.2, 6.0);
+                self.draw_wave_canvas(x1, y1 + 1.0, x2, color, 0.5, 1.2, 6.0);
+            }
             _ => {
+                // 0=실선, 1=파선, 2=점선, 3=일점쇄선, 4=이점쇄선, 5=긴파선, 6=원형점선
                 let dash: &[f64] = match shape {
-                    1 => &[8.0, 4.0],
-                    2 => &[2.0, 2.0],
-                    3 => &[8.0, 4.0, 2.0, 4.0],
-                    4 => &[8.0, 4.0, 2.0, 4.0, 2.0, 4.0],
-                    5 => &[12.0, 4.0],
-                    6 => &[1.0, 3.0],
+                    1 => &[3.0, 3.0],
+                    2 => &[1.0, 2.0],
+                    3 => &[6.0, 2.0, 1.0, 2.0],
+                    4 => &[6.0, 2.0, 1.0, 2.0, 1.0, 2.0],
+                    5 => &[8.0, 4.0],
+                    6 => &[0.1, 2.5],
                     _ => &[],
                 };
+                if shape == 6 {
+                    self.ctx.set_line_cap("round");
+                }
                 self.draw_single_canvas_line(x1, y1, x2, y2, color, 1.0, dash);
+                if shape == 6 {
+                    self.ctx.set_line_cap("butt");
+                }
             }
         }
+    }
+
+    fn draw_wave_canvas(&self, x1: f64, y1: f64, x2: f64, color: &str, width: f64, wave_h: f64, wave_w: f64) {
+        self.ctx.save();
+        self.ctx.begin_path();
+        self.ctx.move_to(x1, y1);
+        let mut cx = x1;
+        let mut up = true;
+        while cx < x2 {
+            let next = (cx + wave_w).min(x2);
+            let cy = if up { y1 - wave_h } else { y1 + wave_h };
+            let _ = self.ctx.quadratic_curve_to((cx + next) / 2.0, cy, next, y1);
+            cx = next;
+            up = !up;
+        }
+        self.ctx.set_stroke_style_str(color);
+        self.ctx.set_line_width(width);
+        self.ctx.stroke();
+        self.ctx.restore();
     }
 
     fn draw_single_canvas_line(&self, x1: f64, y1: f64, x2: f64, y2: f64, color: &str, width: f64, dash: &[f64]) {

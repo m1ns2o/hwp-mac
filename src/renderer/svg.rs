@@ -1231,15 +1231,53 @@ impl SvgRenderer {
                     "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{}\" stroke-width=\"0.5\"/>\n",
                     x1, y1 + 1.5, x2, y2 + 1.5, color));
             }
+            11 => {
+                // 물결선
+                let wave_h = 1.5;
+                let wave_w = 6.0;
+                let mut d = format!("M{:.2},{:.2}", x1, y1);
+                let mut cx = x1;
+                let mut up = true;
+                while cx < x2 {
+                    let next = (cx + wave_w).min(x2);
+                    let cy = if up { y1 - wave_h } else { y1 + wave_h };
+                    d.push_str(&format!(" Q{:.2},{:.2} {:.2},{:.2}", (cx + next) / 2.0, cy, next, y1));
+                    cx = next;
+                    up = !up;
+                }
+                self.output.push_str(&format!(
+                    "<path d=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"0.7\"/>\n", d, color));
+            }
+            12 => {
+                // 이중물결선
+                for offset in [-1.0f64, 1.0] {
+                    let wy = y1 + offset;
+                    let wave_h = 1.2;
+                    let wave_w = 6.0;
+                    let mut d = format!("M{:.2},{:.2}", x1, wy);
+                    let mut cx = x1;
+                    let mut up = true;
+                    while cx < x2 {
+                        let next = (cx + wave_w).min(x2);
+                        let cy = if up { wy - wave_h } else { wy + wave_h };
+                        d.push_str(&format!(" Q{:.2},{:.2} {:.2},{:.2}", (cx + next) / 2.0, cy, next, wy));
+                        cx = next;
+                        up = !up;
+                    }
+                    self.output.push_str(&format!(
+                        "<path d=\"{}\" fill=\"none\" stroke=\"{}\" stroke-width=\"0.5\"/>\n", d, color));
+                }
+            }
             _ => {
                 // 단선 (dasharray로 모양 표현)
+                // 0=실선, 1=파선, 2=점선, 3=일점쇄선, 4=이점쇄선, 5=긴파선, 6=원형점선
                 let dasharray = match shape {
-                    1 => " stroke-dasharray=\"8 4\"",
-                    2 => " stroke-dasharray=\"2 2\"",
-                    3 => " stroke-dasharray=\"8 4 2 4\"",
-                    4 => " stroke-dasharray=\"8 4 2 4 2 4\"",
-                    5 => " stroke-dasharray=\"12 4\"",
-                    6 => " stroke-dasharray=\"1 3\" stroke-linecap=\"round\"",
+                    1 => " stroke-dasharray=\"3 3\"",
+                    2 => " stroke-dasharray=\"1 2\"",
+                    3 => " stroke-dasharray=\"6 2 1 2\"",
+                    4 => " stroke-dasharray=\"6 2 1 2 1 2\"",
+                    5 => " stroke-dasharray=\"8 4\"",
+                    6 => " stroke-dasharray=\"0.1 2.5\" stroke-linecap=\"round\"",
                     _ => "",  // 0=실선
                 };
                 self.output.push_str(&format!(

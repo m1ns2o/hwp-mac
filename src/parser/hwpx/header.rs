@@ -250,34 +250,68 @@ fn parse_char_shape(
                         b"italic" => cs.italic = true,
                         b"underline" => {
                             for attr in ce.attributes().flatten() {
-                                if attr.key.as_ref() == b"type" {
-                                    let val = attr_str(&attr);
-                                    cs.underline_type = match val.as_str() {
-                                        "BOTTOM" => UnderlineType::Bottom,
-                                        "TOP" => UnderlineType::Top,
-                                        _ => UnderlineType::None,
-                                    };
-                                }
-                                if attr.key.as_ref() == b"color" {
-                                    cs.underline_color = parse_color(&attr);
+                                match attr.key.as_ref() {
+                                    b"type" => {
+                                        cs.underline_type = match attr_str(&attr).as_str() {
+                                            "BOTTOM" => UnderlineType::Bottom,
+                                            "TOP" => UnderlineType::Top,
+                                            _ => UnderlineType::None,
+                                        };
+                                    }
+                                    b"color" => {
+                                        cs.underline_color = parse_color(&attr);
+                                    }
+                                    b"shape" => {
+                                        // 밑줄 모양 13종 (표 27 선 종류 + 물결선)
+                                        cs.underline_shape = match attr_str(&attr).as_str() {
+                                            "SOLID" => 0,
+                                            "DASH" => 1,
+                                            "DOT" => 2,
+                                            "DASH_DOT" => 3,
+                                            "DASH_DOT_DOT" => 4,
+                                            "LONG_DASH" => 5,
+                                            "CIRCLE" => 6,
+                                            "DOUBLE_SLIM" => 7,
+                                            "SLIM_THICK" => 8,
+                                            "THICK_SLIM" => 9,
+                                            "SLIM_THICK_SLIM" => 10,
+                                            "WAVE" => 11,
+                                            "DOUBLE_WAVE" => 12,
+                                            _ => 0,
+                                        };
+                                    }
+                                    _ => {}
                                 }
                             }
                         }
                         b"strikeout" => {
                             for attr in ce.attributes().flatten() {
-                                if attr.key.as_ref() == b"shape" {
-                                    let val = attr_str(&attr);
-                                    // 유효한 취소선: SOLID, DASH, DOT 등 선 스타일
-                                    // NONE, 3D 등은 취소선 없음으로 처리
-                                    cs.strikethrough = matches!(
-                                        val.as_str(),
-                                        "SOLID" | "DASH" | "DOT" | "DASH_DOT" | "DASH_DOT_DOT"
-                                        | "LONG_DASH" | "CIRCLE" | "DOUBLE_SLIM"
-                                        | "SLIM_THICK" | "THICK_SLIM" | "SLIM_THICK_SLIM"
-                                    );
-                                }
-                                if attr.key.as_ref() == b"color" {
-                                    cs.strike_color = parse_color(&attr);
+                                match attr.key.as_ref() {
+                                    b"shape" => {
+                                        let val = attr_str(&attr);
+                                        // 유효한 취소선: NONE/3D 이외의 선 스타일
+                                        cs.strikethrough = !matches!(val.as_str(), "NONE" | "3D");
+                                        cs.strike_shape = match val.as_str() {
+                                            "SOLID" => 0,
+                                            "DASH" => 1,
+                                            "DOT" => 2,
+                                            "DASH_DOT" => 3,
+                                            "DASH_DOT_DOT" => 4,
+                                            "LONG_DASH" => 5,
+                                            "CIRCLE" => 6,
+                                            "DOUBLE_SLIM" => 7,
+                                            "SLIM_THICK" => 8,
+                                            "THICK_SLIM" => 9,
+                                            "SLIM_THICK_SLIM" => 10,
+                                            "WAVE" => 11,
+                                            "DOUBLE_WAVE" => 12,
+                                            _ => 0,
+                                        };
+                                    }
+                                    b"color" => {
+                                        cs.strike_color = parse_color(&attr);
+                                    }
+                                    _ => {}
                                 }
                             }
                         }
