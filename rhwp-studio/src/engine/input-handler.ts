@@ -188,7 +188,7 @@ export class InputHandler {
   private onClickBound: (e: MouseEvent) => void;
   private onDblClickBound: (e: MouseEvent) => void;
   private onKeyDownBound: (e: KeyboardEvent) => void;
-  private onInputBound: () => void;
+  private onInputBound: (e?: Event) => void;
   private onCompositionStartBound: () => void;
   private onCompositionEndBound: () => void;
   private onCopyBound: (e: ClipboardEvent) => void;
@@ -1305,8 +1305,8 @@ export class InputHandler {
   }
 
   /** 텍스트 입력 처리 (textarea input 이벤트) */
-  private onInput(): void {
-    _text.onInput.call(this);
+  private onInput(e?: Event): void {
+    _text.onInput.call(this, e as InputEvent);
   }
 
   /** 위치에 텍스트를 삽입한다 (WASM 직접 호출, IME 조합용) */
