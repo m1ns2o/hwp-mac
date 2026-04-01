@@ -205,15 +205,22 @@ export class InputHandler {
     this.history = new CommandHistory();
 
     // Hidden textarea 생성
-    // iOS WebKit에서는 left:-9999px로 화면 밖에 보내면 IME composition이 깨짐
-    // → 커서 근처에 투명하게 배치하여 iOS IME 호환성 확보
+    // iOS WebKit IME 호환:
+    // - opacity:0 → 투명 색상 (opacity:0은 iOS가 IME 비활성화)
+    // - 1px → 1em (너무 작으면 iOS가 composition 생략)
+    // - fixed → absolute (fixed는 iOS에서 composition 이벤트 미발생)
+    // - font-size:16px (iOS 자동 줌 방지)
     this.textarea = document.createElement('textarea');
     this.textarea.style.cssText =
-      'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;z-index:-1;font-size:16px;';
+      'position:absolute;left:0;top:0;width:1em;height:1.2em;' +
+      'color:transparent;background:transparent;caret-color:transparent;' +
+      'border:none;outline:none;resize:none;overflow:hidden;' +
+      'z-index:10;font-size:16px;padding:0;margin:0;';
     this.textarea.setAttribute('autocomplete', 'off');
     this.textarea.setAttribute('autocorrect', 'off');
     this.textarea.setAttribute('autocapitalize', 'off');
     this.textarea.setAttribute('spellcheck', 'false');
+    this.textarea.setAttribute('inputmode', 'text');
     document.body.appendChild(this.textarea);
 
     this.onClickBound = this.onClick.bind(this);
@@ -317,7 +324,7 @@ export class InputHandler {
         this.applyCharFormat(props as Partial<CharProperties>);
       }
       // 서식바 조작으로 빠진 포커스를 항상 복원
-      this.textarea.focus();
+      this.focusTextarea();
     });
   }
 
@@ -1286,6 +1293,11 @@ export class InputHandler {
     _text.deleteTextAt.call(this, pos, count);
   }
 
+  /** textarea에 포커스를 설정한다 (iOS 호환) */
+  private focusTextarea(): void {
+    this.focusTextarea();
+  }
+
   /** 편집 후 처리: 재렌더링 + 캐럿 갱신 */
   private afterEdit(): void {
     this.lastCellKey = null; // 편집 후 셀 bbox 캐시 무효화
@@ -1683,7 +1695,7 @@ export class InputHandler {
         this.caret.show(rect, this.viewportManager.getZoom());
       }
       this.emitCursorFormatState();
-      this.textarea.focus();
+      this.focusTextarea();
     } catch (e) {
       console.warn('[InputHandler] 캐럿 자동 배치 실패:', e);
       // 실패 시 문서 시작에 배치
@@ -1693,14 +1705,14 @@ export class InputHandler {
       if (rect) {
         this.caret.show(rect, this.viewportManager.getZoom());
       }
-      this.textarea.focus();
+      this.focusTextarea();
     }
   }
 
   /** 캐럿을 숨기고 히스토리를 초기화한다 */
   /** textarea에 포커스를 복원한다 (대화상자 닫힌 후 등) */
   focus(): void {
-    this.textarea.focus();
+    this.focusTextarea();
   }
 
   deactivate(): void {
@@ -1819,7 +1831,7 @@ export class InputHandler {
     });
     this.cursor.resetPreferredX();
     this.updateCaret();
-    this.textarea.focus();
+    this.focusTextarea();
   }
 
   /** 표 캡션 텍스트 편집 모드 진입 (cellIndex=65534로 캡션 구분) */
@@ -1836,7 +1848,7 @@ export class InputHandler {
     });
     this.cursor.resetPreferredX();
     this.updateCaret();
-    this.textarea.focus();
+    this.focusTextarea();
   }
 
   /** 표 경계선 리사이즈 렌더러를 주입한다 (main.ts에서 호출) */
@@ -1866,10 +1878,10 @@ export class InputHandler {
     if (rect) {
       this.caret.show(rect, this.viewportManager.getZoom());
       this.updateCaret();
-      this.textarea.focus();
+      this.focusTextarea();
       return true;
     }
-    this.textarea.focus();
+    this.focusTextarea();
     return false;
   }
 
@@ -2044,7 +2056,7 @@ export class InputHandler {
       return;
     }
     // 텍스트 선택 → textarea 포커스 후 execCommand
-    this.textarea.focus();
+    this.focusTextarea();
     document.execCommand('copy');
   }
 
@@ -2085,7 +2097,7 @@ export class InputHandler {
       return;
     }
     // 텍스트 선택 → textarea 포커스 후 execCommand
-    this.textarea.focus();
+    this.focusTextarea();
     document.execCommand('cut');
   }
 
@@ -2183,7 +2195,7 @@ export class InputHandler {
           paraLevel: 0,
         } as Partial<import('@/core/types').ParaProperties>);
       }
-      this.textarea.focus();
+      this.focusTextarea();
     } catch (err) {
       console.warn('[InputHandler] toggleNumbering 실패:', err);
     }
@@ -2205,7 +2217,7 @@ export class InputHandler {
           paraLevel: 0,
         } as Partial<import('@/core/types').ParaProperties>);
       }
-      this.textarea.focus();
+      this.focusTextarea();
     } catch (err) {
       console.warn('[InputHandler] toggleBullet 실패:', err);
     }
@@ -2220,7 +2232,7 @@ export class InputHandler {
         numberingId: bid,
         paraLevel: 0,
       } as Partial<import('@/core/types').ParaProperties>);
-      this.textarea.focus();
+      this.focusTextarea();
     } catch (err) {
       console.warn('[InputHandler] applyBullet 실패:', err);
     }
@@ -2234,7 +2246,7 @@ export class InputHandler {
         numberingId,
         paraLevel: 0,
       } as Partial<import('@/core/types').ParaProperties>);
-      this.textarea.focus();
+      this.focusTextarea();
     } catch (err) {
       console.warn('[InputHandler] applyNumbering 실패:', err);
     }
