@@ -139,8 +139,25 @@ impl DocumentCore {
                 fonts.insert(resolved.to_string());
             }
         }
-        let fonts_json: Vec<String> = fonts.iter().map(|f| format!("\"{}\"", f)).collect();
+        let fonts_json: Vec<String> = fonts.iter().map(|f| {
+            // 폰트 이름의 특수문자를 JSON 이스케이프 처리
+            let escaped: String = f.chars().flat_map(|c| match c {
+                '"' => vec!['\\', '"'],
+                '\\' => vec!['\\', '\\'],
+                '\n' => vec!['\\', 'n'],
+                '\r' => vec!['\\', 'r'],
+                '\t' => vec!['\\', 't'],
+                c if c < '\x20' => vec![],
+                c => vec![c],
+            }).collect();
+            format!("\"{}\"", escaped)
+        }).collect();
 
+        let escaped_fallback: String = self.fallback_font.chars().flat_map(|c| match c {
+            '"' => vec!['\\', '"'],
+            '\\' => vec!['\\', '\\'],
+            c => vec![c],
+        }).collect();
         format!(
             "{{\"version\":\"{}.{}.{}.{}\",\"sectionCount\":{},\"pageCount\":{},\"encrypted\":{},\"fallbackFont\":\"{}\",\"fontsUsed\":[{}]}}",
             self.document.header.version.major,
@@ -150,7 +167,7 @@ impl DocumentCore {
             self.document.sections.len(),
             self.page_count(),
             self.document.header.encrypted,
-            self.fallback_font,
+            escaped_fallback,
             fonts_json.join(","),
         )
     }
