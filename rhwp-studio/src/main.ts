@@ -436,20 +436,56 @@ eventBus.on('equation-edit-request', () => {
 
 initialize();
 
-// ── hwpctl-test iframe 연동 ──
-// 부모 페이지(hwpctl-test.html)에서 postMessage로 HWP 바이트를 받아 로드
+// ── iframe 연동 API (postMessage) ──
+// 부모 페이지에서 postMessage로 에디터를 제어할 수 있다.
+// 요청: { type: 'rhwp-request', id, method, params }
+// 응답: { type: 'rhwp-response', id, result?, error? }
 window.addEventListener('message', async (e) => {
-  if (e.data?.type === 'hwpctl-load' && e.data.data) {
+  const msg = e.data;
+  if (!msg || typeof msg !== 'object') return;
+
+  // 기존 hwpctl-load 호환
+  if (msg.type === 'hwpctl-load' && msg.data) {
     try {
-      // ArrayBuffer 또는 Array로 수신
-      const bytes = e.data.data instanceof ArrayBuffer
-        ? new Uint8Array(e.data.data)
-        : new Uint8Array(e.data.data);
-      // WasmBridge를 통해 로드 (iframe 내부 WASM 인스턴스 사용)
-      const docInfo = wasm.loadDocument(bytes, 'hwpctl-test.hwp');
-      await initializeDocument(docInfo, `hwpctl — ${docInfo.pageCount}페이지`);
-    } catch (err) {
-      console.error('[hwpctl-iframe] 문서 로드 실패:', err);
+      const bytes = new Uint8Array(msg.data);
+      const docInfo = wasm.loadDocument(bytes, msg.fileName || 'document.hwp');
+      await initializeDocument(docInfo, `${msg.fileName || 'document'} — ${docInfo.pageCount}페이지`);
+      e.source?.postMessage({ type: 'rhwp-response', id: msg.id, result: { pageCount: docInfo.pageCount } }, { targetOrigin: '*' });
+    } catch (err: any) {
+      e.source?.postMessage({ type: 'rhwp-response', id: msg.id, error: err.message || String(err) }, { targetOrigin: '*' });
     }
+    return;
+  }
+
+  // rhwp-request: 범용 API
+  if (msg.type !== 'rhwp-request' || !msg.method) return;
+  const { id, method, params } = msg;
+  const reply = (result?: any, error?: string) => {
+    e.source?.postMessage({ type: 'rhwp-response', id, result, error }, { targetOrigin: '*' });
+  };
+
+  try {
+    switch (method) {
+      case 'loadFile': {
+        const bytes = new Uint8Array(params.data);
+        const docInfo = wasm.loadDocument(bytes, params.fileName || 'document.hwp');
+        await initializeDocument(docInfo, `${params.fileName || 'document'} — ${docInfo.pageCount}페이지`);
+        reply({ pageCount: docInfo.pageCount });
+        break;
+      }
+      case 'pageCount':
+        reply(wasm.pageCount);
+        break;
+      case 'getPageSvg':
+        reply(wasm.doc?.renderPageSvg(params.page ?? 0));
+        break;
+      case 'ready':
+        reply(true);
+        break;
+      default:
+        reply(undefined, `Unknown method: ${method}`);
+    }
+  } catch (err: any) {
+    reply(undefined, err.message || String(err));
   }
 });

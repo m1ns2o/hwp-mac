@@ -53,77 +53,7 @@ cat > "${PKG_DIR}/package.json" << EOF
 }
 EOF
 
-# npm 패키지용 README
-cat > "${PKG_DIR}/README.md" << 'EOF'
-# rhwp
-
-**알(R), 모두의 한글** — HWP/HWPX 파일 파서 & 렌더러 (Rust + WebAssembly)
-
-[![npm](https://img.shields.io/npm/v/@rhwp/core)](https://www.npmjs.com/package/@rhwp/core)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-## 설치
-
-```bash
-npm install @rhwp/core
-```
-
-## 사용법
-
-```javascript
-import init, { HwpDocument } from '@rhwp/core';
-
-// WASM 초기화
-await init();
-
-// HWP 파일 로드
-const response = await fetch('document.hwp');
-const buffer = new Uint8Array(await response.arrayBuffer());
-const doc = HwpDocument.load(buffer, 'document.hwp');
-
-// 문서 정보
-console.log(doc.pageCount);
-
-// SVG 렌더링
-const svg = doc.renderPageToSvg(0); // 첫 번째 페이지
-document.getElementById('viewer').innerHTML = svg;
-```
-
-## Canvas 렌더링
-
-```javascript
-import init, { HwpDocument } from '@rhwp/core';
-
-await init();
-const doc = HwpDocument.load(buffer, 'document.hwp');
-
-// Canvas에 렌더링
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-doc.renderPageToCanvas(0, ctx, canvas.width, canvas.height);
-```
-
-## 기능
-
-- **HWP 5.0** (바이너리) + **HWPX** (XML) 파싱
-- 문단, 표, 수식, 이미지, 차트 렌더링
-- 페이지네이션 (다단, 표 분할)
-- SVG / Canvas 출력
-- 머리말/꼬리말/바탕쪽/각주
-
-## 링크
-
-- [온라인 데모](https://edwardkim.github.io/rhwp/)
-- [GitHub](https://github.com/edwardkim/rhwp)
-- [VS Code 확장](https://marketplace.visualstudio.com/items?itemName=edwardkim.rhwp-vscode)
-
-## Notice
-
-본 제품은 한글과컴퓨터의 한글 문서 파일(.hwp) 공개 문서를 참고하여 개발하였습니다.
-
-## License
-
-MIT
-EOF
+# npm 패키지용 README 복사
+cp "$(dirname "$0")/../npm/README.md" "${PKG_DIR}/README.md"
 
 echo "✅ 완료: ${PKG_DIR}/package.json + README.md"
