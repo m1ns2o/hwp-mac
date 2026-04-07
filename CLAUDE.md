@@ -54,7 +54,22 @@ rhwp export-svg sample.hwp -p 0                    # 특정 페이지만 출력 
 rhwp export-svg sample.hwp --show-para-marks       # 문단부호(↵/↓) 표시
 rhwp export-svg sample.hwp --show-control-codes    # 조판부호 표시 (문단부호+개체마커)
 rhwp export-svg sample.hwp --debug-overlay         # 디버그 오버레이 (문단/표 경계+인덱스)
+rhwp export-svg sample.hwp --font-style            # @font-face local() 참조 삽입
+rhwp export-svg sample.hwp --embed-fonts           # 폰트 서브셋 임베딩 (사용 글자만)
+rhwp export-svg sample.hwp --embed-fonts=full      # 폰트 전체 임베딩
+rhwp export-svg sample.hwp --font-path ~/fonts     # 폰트 파일 탐색 경로 (여러 번 지정 가능)
 ```
+
+#### 폰트 임베딩 옵션
+
+| 옵션 | SVG 크기 | 오프라인 | 설명 |
+|------|---------|---------|------|
+| (없음) | 최소 | ❌ | CSS font-family 체인만 |
+| `--font-style` | +수 KB | ❌ | `@font-face { src: local("폰트명") }` 참조 |
+| `--embed-fonts` | +수십~수백 KB | ✅ | 사용 글자만 서브셋 추출 + base64 |
+| `--embed-fonts=full` | +수 MB | ✅ | 전체 폰트 base64 |
+
+`--font-path`로 TTF/OTF 파일 탐색 경로를 지정한다. 여러 번 지정 가능하며 기본 탐색 경로(`ttfs/`, 시스템 폰트)보다 우선한다.
 
 #### 디버그 오버레이 (`--debug-overlay`)
 
