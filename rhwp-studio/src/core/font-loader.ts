@@ -9,57 +9,62 @@
 interface FontEntry {
   name: string;
   file: string;
+  /** woff2(기본) 또는 woff — CDN woff 파일용 */
+  format?: 'woff2' | 'woff';
 }
+
+// 함초롬체 CDN (눈누 jsdelivr — 비상업적 사용 허용, 한컴 라이선스)
+const CDN_HAMCHOB_R = 'https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_2104@1.0/HANBatang.woff';
+const CDN_HAMCHOB_B = 'https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_2104@1.0/HANBatangB.woff';
+const CDN_HAMCHOD_R = 'https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_four@1.0/HCRDotum.woff';
 
 // 한컴 webhwp CSS(@font-face) 매핑 기준 + HWP 문서에서 사용하는 별칭
 const FONT_LIST: FontEntry[] = [
-  // === 한컴 HY 폰트 ===
-  { name: 'HY헤드라인M', file: 'fonts/h2hdrm.woff2' },
-  { name: 'HYHeadLine M', file: 'fonts/h2hdrm.woff2' },
-  { name: 'HYHeadLine Medium', file: 'fonts/h2hdrm.woff2' },
-  { name: 'HY견고딕', file: 'fonts/hygtre.woff2' },
-  { name: 'HYGothic-Extra', file: 'fonts/hygtre.woff2' },
-  { name: 'HY그래픽', file: 'fonts/hygprm.woff2' },
-  { name: 'HYGraphic-Medium', file: 'fonts/hygprm.woff2' },
-  { name: 'HY그래픽M', file: 'fonts/hygprm.woff2' },
-  { name: 'HY견명조', file: 'fonts/hymjre.woff2' },
-  { name: 'HYMyeongJo-Extra', file: 'fonts/hymjre.woff2' },
-  // HY 중간 치환 폰트 (woff2 미보유 → 완전한 한글 폰트로 매핑)
-  { name: 'HY신명조', file: 'fonts/hamchob-r.woff2' },
-  { name: 'HY중고딕', file: 'fonts/hamchod-r.woff2' },
-  { name: '양재튼튼체B', file: 'fonts/hamchod-r.woff2' },
-  { name: 'Palatino Linotype', file: 'fonts/TimesNewRomanW05-Regular.woff2' },
-  // === 함초롬/함초롱/한컴 폰트 ===
-  { name: '함초롬돋움', file: 'fonts/hamchod-r.woff2' },
-  { name: '함초롬바탕', file: 'fonts/hamchob-r.woff2' },
-  { name: '함초롱돋움', file: 'fonts/hamchod-r.woff2' },
-  { name: '함초롱바탕', file: 'fonts/hamchob-r.woff2' },
-  { name: '한컴돋움', file: 'fonts/hamchod-r.woff2' },
-  { name: '한컴바탕', file: 'fonts/hamchob-r.woff2' },
-  { name: '새돋움', file: 'fonts/hamchod-r.woff2' },
-  { name: '새바탕', file: 'fonts/hamchob-r.woff2' },
-  // === 한글 시스템 폰트 ===
-  { name: 'Malgun Gothic', file: 'fonts/MalgunGothicW35-Regular.woff2' },
-  { name: '맑은 고딕', file: 'fonts/MalgunGothicW35-Regular.woff2' },
-  { name: '돋움', file: 'fonts/hamchod-r.woff2' },
-  { name: '돋움체', file: 'fonts/hamchod-r.woff2' },
-  { name: '굴림', file: 'fonts/hamchod-r.woff2' },
-  { name: '굴림체', file: 'fonts/hamchod-r.woff2' },
-  { name: '새굴림', file: 'fonts/hamchod-r.woff2' },
-  { name: '바탕', file: 'fonts/hamchob-r.woff2' },
-  { name: '바탕체', file: 'fonts/hamchob-r.woff2' },
-  { name: '궁서', file: 'fonts/hamchob-r.woff2' },
-  { name: '궁서체', file: 'fonts/hamchob-r.woff2' },
-  { name: '새궁서', file: 'fonts/hamchob-r.woff2' },
-  // === 영문 폰트 ===
-  { name: 'Arial', file: 'fonts/ArialW05-Regular.woff2' },
-  { name: 'Times New Roman', file: 'fonts/TimesNewRomanW05-Regular.woff2' },
-  { name: 'Calibri', file: 'fonts/Calibri.woff2' },
-  { name: 'Courier New', file: 'fonts/CourierNewW05-Regular.woff2' },
-  { name: 'Tahoma', file: 'fonts/TahomaW05-Regular.woff2' },
-  { name: 'Verdana', file: 'fonts/VerdanaW05-Regular.woff2' },
-  { name: 'Webdings', file: 'fonts/WebdingsW95-Regular.woff2' },
-  { name: 'Wingdings 3', file: 'fonts/WingdingsW95-3.woff2' },
+  // === 함초롬/함초롱/한컴 폰트 (CDN 참조) ===
+  { name: '함초롬돋움', file: CDN_HAMCHOD_R, format: 'woff' },
+  { name: '함초롬바탕', file: CDN_HAMCHOB_R, format: 'woff' },
+  { name: '함초롱돋움', file: CDN_HAMCHOD_R, format: 'woff' },
+  { name: '함초롱바탕', file: CDN_HAMCHOB_R, format: 'woff' },
+  { name: '한컴돋움', file: CDN_HAMCHOD_R, format: 'woff' },
+  { name: '한컴바탕', file: CDN_HAMCHOB_R, format: 'woff' },
+  { name: '새돋움', file: CDN_HAMCHOD_R, format: 'woff' },
+  { name: '새바탕', file: CDN_HAMCHOB_R, format: 'woff' },
+  // === 한컴 HY 폰트 → 오픈소스 대체 ===
+  { name: 'HY헤드라인M', file: 'fonts/NotoSansKR-Bold.woff2' },
+  { name: 'HYHeadLine M', file: 'fonts/NotoSansKR-Bold.woff2' },
+  { name: 'HYHeadLine Medium', file: 'fonts/NotoSansKR-Bold.woff2' },
+  { name: 'HY견고딕', file: 'fonts/NotoSansKR-Bold.woff2' },
+  { name: 'HYGothic-Extra', file: 'fonts/NotoSansKR-Bold.woff2' },
+  { name: 'HY그래픽', file: 'fonts/NotoSansKR-Regular.woff2' },
+  { name: 'HYGraphic-Medium', file: 'fonts/NotoSansKR-Regular.woff2' },
+  { name: 'HY그래픽M', file: 'fonts/NotoSansKR-Regular.woff2' },
+  { name: 'HY견명조', file: 'fonts/NotoSerifKR-Bold.woff2' },
+  { name: 'HYMyeongJo-Extra', file: 'fonts/NotoSerifKR-Bold.woff2' },
+  { name: 'HY신명조', file: 'fonts/NotoSerifKR-Regular.woff2' },
+  { name: 'HY중고딕', file: 'fonts/NotoSansKR-Regular.woff2' },
+  { name: '양재튼튼체B', file: 'fonts/NotoSansKR-Bold.woff2' },
+  // === 한글 시스템 폰트 → 오픈소스 대체 (OS 폰트 없을 때 폴백) ===
+  { name: 'Malgun Gothic', file: 'fonts/Pretendard-Regular.woff2' },
+  { name: '맑은 고딕', file: 'fonts/Pretendard-Regular.woff2' },
+  { name: '돋움', file: 'fonts/NotoSansKR-Regular.woff2' },
+  { name: '돋움체', file: 'fonts/NotoSansKR-Regular.woff2' },
+  { name: '굴림', file: 'fonts/NotoSansKR-Regular.woff2' },
+  { name: '굴림체', file: 'fonts/D2Coding-Regular.woff2' },
+  { name: '새굴림', file: 'fonts/NotoSansKR-Regular.woff2' },
+  { name: '바탕', file: 'fonts/NotoSerifKR-Regular.woff2' },
+  { name: '바탕체', file: 'fonts/D2Coding-Regular.woff2' },
+  { name: '궁서', file: 'fonts/GowunBatang-Regular.woff2' },
+  { name: '궁서체', file: 'fonts/GowunBatang-Regular.woff2' },
+  { name: '새궁서', file: 'fonts/GowunBatang-Regular.woff2' },
+  // === 나눔 폰트 (OFL, 로컬) ===
+  { name: '나눔고딕', file: 'fonts/NanumGothic-Regular.woff2' },
+  { name: '나눔명조', file: 'fonts/NanumMyeongjo-Regular.woff2' },
+  { name: '나눔고딕코딩', file: 'fonts/NanumGothicCoding-Regular.woff2' },
+  // === 영문 폰트 → OS 폴백 (번들 제거) ===
+  { name: 'Palatino Linotype', file: 'fonts/NotoSerifKR-Regular.woff2' },
+  // === Noto (OFL, 로컬) ===
+  { name: 'Noto Sans KR', file: 'fonts/NotoSansKR-Regular.woff2' },
+  { name: 'Noto Serif KR', file: 'fonts/NotoSerifKR-Regular.woff2' },
   // === Pretendard ===
   { name: 'Pretendard', file: 'fonts/Pretendard-Regular.woff2' },
   { name: 'Pretendard Thin', file: 'fonts/Pretendard-Thin.woff2' },
@@ -70,6 +75,8 @@ const FONT_LIST: FontEntry[] = [
   { name: 'Pretendard Bold', file: 'fonts/Pretendard-Bold.woff2' },
   { name: 'Pretendard ExtraBold', file: 'fonts/Pretendard-ExtraBold.woff2' },
   { name: 'Pretendard Black', file: 'fonts/Pretendard-Black.woff2' },
+  // === D2 Coding (OFL, 로컬) ===
+  { name: 'D2Coding', file: 'fonts/D2Coding-Regular.woff2' },
   // === Happiness Sans ===
   { name: '해피니스 산스 레귤러', file: 'fonts/Happiness-Sans-Regular.woff2' },
   { name: 'Happiness Sans Regular', file: 'fonts/Happiness-Sans-Regular.woff2' },
@@ -85,6 +92,9 @@ const FONT_LIST: FontEntry[] = [
   { name: 'Cafe24 Supermagic', file: 'fonts/Cafe24Supermagic-Regular-v1.0.woff2' },
   // === 기타 ===
   { name: 'SpoqaHanSans', file: 'fonts/SpoqaHanSans-Regular.woff2' },
+  // === Gowun (OFL, 로컬) ===
+  { name: '고운바탕', file: 'fonts/GowunBatang-Regular.woff2' },
+  { name: '고운돋움', file: 'fonts/GowunDodum-Regular.woff2' },
 ];
 
 /** @font-face에 등록된 폰트 이름 Set */
@@ -114,9 +124,10 @@ export async function loadWebFonts(
   // 1) CSS @font-face 규칙 전체 등록 (네트워크 미발생, 최초 1회만)
   if (!fontFaceRegistered) {
     const style = document.createElement('style');
-    style.textContent = FONT_LIST.map(f =>
-      `@font-face { font-family: "${f.name}"; src: url("${f.file}") format("woff2"); font-display: swap; }`
-    ).join('\n');
+    style.textContent = FONT_LIST.map(f => {
+      const fmt = f.format ?? 'woff2';
+      return `@font-face { font-family: "${f.name}"; src: url("${f.file}") format("${fmt}"); font-display: swap; }`;
+    }).join('\n');
     document.head.appendChild(style);
     fontFaceRegistered = true;
   }
@@ -159,8 +170,9 @@ export async function loadWebFonts(
     await Promise.all(batch.map(async (f) => {
       try {
         const names = fileToNames.get(f.file) ?? [f.name];
+        const fmt = f.format ?? 'woff2';
         for (const name of names) {
-          const face = new FontFace(name, `url(${f.file}) format('woff2')`);
+          const face = new FontFace(name, `url(${f.file}) format('${fmt}')`);
           const result = await face.load();
           document.fonts.add(result);
         }

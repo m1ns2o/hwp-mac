@@ -34,10 +34,44 @@
 
 ## 오픈 라이선스 폰트 (Git 포함)
 
-| 파일명 | 폰트명 | 라이선스 |
-|--------|--------|---------|
-| Pretendard-*.woff2 (9종) | Pretendard | OFL |
-| Cafe24Ssurround-v2.0.woff2 | 카페24 써라운드 | 무료 배포 |
-| Cafe24Supermagic-Regular-v1.0.woff2 | 카페24 슈퍼매직 | 무료 배포 |
-| Happiness-Sans-*.woff2 (4종) | 행복고딕 | 무료 배포 |
-| SpoqaHanSans-Regular.woff2 | 스포카 한 산스 | OFL |
+### Serif (명조체 계열)
+
+| 파일명 | 폰트명 | 라이선스 | 출처 | 대체 대상 |
+|--------|--------|---------|------|----------|
+| NotoSerifKR-Regular.woff2 | Noto Serif KR Regular | SIL OFL 1.1 | Google Fonts | 바탕, 한컴바탕, 함초롬바탕 |
+| NotoSerifKR-Bold.woff2 | Noto Serif KR Bold | SIL OFL 1.1 | Google Fonts | 바탕 Bold |
+| NanumMyeongjo-Regular.woff2 | 나눔명조 Regular | SIL OFL 1.1 | Google Fonts | HY명조, 휴먼명조 |
+| NanumMyeongjo-Bold.woff2 | 나눔명조 Bold | SIL OFL 1.1 | Google Fonts | HY명조 Bold |
+| NanumMyeongjo-ExtraBold.woff2 | 나눔명조 ExtraBold | SIL OFL 1.1 | Google Fonts | HY명조 ExtraBold |
+| GowunBatang-Regular.woff2 | 고운바탕 Regular | SIL OFL 1.1 | Google Fonts | 궁서 대체 |
+| GowunBatang-Bold.woff2 | 고운바탕 Bold | SIL OFL 1.1 | Google Fonts | 궁서 Bold |
+
+### Sans-serif (고딕체 계열)
+
+| 파일명 | 폰트명 | 라이선스 | 출처 | 대체 대상 |
+|--------|--------|---------|------|----------|
+| Pretendard-*.woff2 (9종) | Pretendard | SIL OFL 1.1 | GitHub | 맑은 고딕, 함초롬돋움 |
+| NotoSansKR-Regular.woff2 | Noto Sans KR Regular | SIL OFL 1.1 | Google Fonts | 돋움, 굴림, 한컴돋움 |
+| NotoSansKR-Bold.woff2 | Noto Sans KR Bold | SIL OFL 1.1 | Google Fonts | 돋움 Bold |
+| NanumGothic-Regular.woff2 | 나눔고딕 Regular | SIL OFL 1.1 | Google Fonts | 나눔고딕 (동일) |
+| NanumGothic-Bold.woff2 | 나눔고딕 Bold | SIL OFL 1.1 | Google Fonts | 나눔고딕 Bold |
+| NanumGothic-ExtraBold.woff2 | 나눔고딕 ExtraBold | SIL OFL 1.1 | Google Fonts | 나눔고딕 ExtraBold |
+| GowunDodum-Regular.woff2 | 고운돋움 Regular | SIL OFL 1.1 | Google Fonts | HY고딕 대체 |
+| SpoqaHanSans-Regular.woff2 | 스포카 한 산스 | SIL OFL 1.1 | GitHub | 보조 Sans |
+
+### Monospace (고정폭)
+
+| 파일명 | 폰트명 | 라이선스 | 출처 | 대체 대상 |
+|--------|--------|---------|------|----------|
+| D2Coding-Regular.woff2 | D2 Coding Regular | SIL OFL 1.1 | GitHub (naver) | 굴림체, 바탕체 |
+| D2Coding-Bold.woff2 | D2 Coding Bold | SIL OFL 1.1 | GitHub (naver) | 굴림체 Bold |
+| NanumGothicCoding-Regular.woff2 | 나눔고딕코딩 Regular | SIL OFL 1.1 | Google Fonts | 보조 Monospace |
+| NanumGothicCoding-Bold.woff2 | 나눔고딕코딩 Bold | SIL OFL 1.1 | Google Fonts | 보조 Monospace Bold |
+
+### 특수/장식체
+
+| 파일명 | 폰트명 | 라이선스 | 출처 |
+|--------|--------|---------|------|
+| Cafe24Ssurround-v2.0.woff2 | 카페24 써라운드 | 무료 배포 | Cafe24 |
+| Cafe24Supermagic-Regular-v1.0.woff2 | 카페24 슈퍼매직 | 무료 배포 | Cafe24 |
+| Happiness-Sans-*.woff2 (4종) | 행복고딕 | 무료 배포 | 행복나눔 |

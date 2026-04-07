@@ -247,13 +247,22 @@ export function resolveFont(fontName: string, altType: number, langId: number): 
 }
 
 /**
- * CSS font-family 문자열에 fallback 체인을 추가한다.
+ * CSS font-family 문자열에 전 플랫폼 fallback 체인을 추가한다.
+ * Windows → macOS/iOS → Android → 오픈소스 → generic
  */
 export function fontFamilyWithFallback(fontName: string): string {
   if (fontName === 'serif' || fontName === 'sans-serif' || fontName === 'monospace') {
     return fontName;
   }
-  const isSerif = /[바탕명조궁서]|hymjre|times|palatino|georgia|batang|gungsuh/i.test(fontName);
-  const generic = isSerif ? 'serif' : 'sans-serif';
-  return `"${fontName}", ${generic}`;
+  const lower = fontName.toLowerCase();
+  // Monospace 판별
+  if (/굴림체|바탕체|gulimche|batangche|coding|courier/i.test(fontName)) {
+    return `"${fontName}", "GulimChe", "D2Coding", "Noto Sans Mono", monospace`;
+  }
+  // Serif 판별
+  if (/[바탕명조궁서]|hymjre|times|palatino|georgia|batang|gungsuh/i.test(fontName)) {
+    return `"${fontName}", "Batang", "AppleMyungjo", "Noto Serif KR", serif`;
+  }
+  // Sans-serif (기본)
+  return `"${fontName}", "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", "Pretendard", sans-serif`;
 }
