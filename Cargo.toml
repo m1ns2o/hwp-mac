@@ -7,7 +7,7 @@ license = "MIT"
 repository = "https://github.com/pureink-studio/rhwp"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib", "rlib", "staticlib"]
 
 [[bin]]
 name = "rhwp"
@@ -30,6 +30,8 @@ embedded-io = "0.7.1"
 encoding_rs = "0.8.35"
 paste = "1.0.15"
 snafu = "0.8.9"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 strum = { version = "0.27.2", default-features = false, features = ["derive"] }
 unicode-segmentation = "1.12.0"
 unicode-width = "0.2.2"

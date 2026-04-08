@@ -1,7 +1,13 @@
 # Rust
 /target/
 /target-local/
-Cargo.lock
+!/Cargo.lock
+
+# Swift / macOS app
+/hwp-mac/.build/
+/hwp-mac/.swiftpm/
+*.dSYM/
+DerivedData/
 
 # WebAssembly
 /pkg/
@@ -9,6 +15,7 @@ Cargo.lock
 
 # Output (렌더링 결과물)
 /output/
+/comparison/
 
 # Docker
 .docker/

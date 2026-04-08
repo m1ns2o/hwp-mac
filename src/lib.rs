@@ -10,6 +10,7 @@ pub mod renderer;
 pub mod serializer;
 pub mod error;
 pub mod document_core;
+pub mod native_api;
 pub mod wasm_api;
 pub mod wmf;
 
