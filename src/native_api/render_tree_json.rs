@@ -2,6 +2,7 @@ use base64::Engine;
 use serde_json::{json, Value};
 
 use crate::document_core::helpers::color_ref_to_css;
+use crate::renderer::layout::compute_char_positions;
 use crate::renderer::render_tree::{
     BoundingBox, EllipseNode, FieldMarkerType, FormObjectNode, ImageNode, LineNode, PageBackgroundImage,
     PageBackgroundNode, PageNode, PathNode, RenderNode, RenderNodeType, ShapeTransform, TableCellNode,
@@ -166,8 +167,10 @@ fn text_line_value(line: &TextLineNode) -> Value {
 }
 
 fn text_run_value(run: &TextRunNode) -> Value {
+    let char_positions = compute_char_positions(&run.text, &run.style);
     json!({
         "text": run.text,
+        "charX": char_positions,
         "style": text_style_value(&run.style),
         "charShapeId": run.char_shape_id,
         "paraShapeId": run.para_shape_id,

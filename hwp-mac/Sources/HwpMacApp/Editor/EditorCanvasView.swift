@@ -9,20 +9,23 @@ struct EditorCanvasView: NSViewRepresentable {
         let scrollView = EditorScrollView()
         scrollView.editorView.documentController = documentController
         scrollView.editorView.viewportController = viewportController
-        scrollView.editorView.refreshLayout()
+        scrollView.configureViewport()
         return scrollView
     }
 
     func updateNSView(_ nsView: EditorScrollView, context: Context) {
         nsView.editorView.documentController = documentController
         nsView.editorView.viewportController = viewportController
-        nsView.editorView.refreshLayout()
+        nsView.synchronizeViewportState()
     }
 }
 
 @MainActor
 final class EditorScrollView: NSScrollView {
     let editorView = EditorCanvasNSView(frame: .zero)
+    private var lastAppliedZoom: CGFloat = 1.0
+
+    override var acceptsFirstResponder: Bool { true }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -38,6 +41,152 @@ final class EditorScrollView: NSScrollView {
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    override func layout() {
+        super.layout()
+        synchronizeViewportMetrics()
+        editorView.refreshLayout()
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        guard let window else { return super.becomeFirstResponder() }
+        return window.makeFirstResponder(editorView)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        editorView.keyDown(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if editorView.performKeyEquivalent(with: event) {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func selectAll(_ sender: Any?) {
+        editorView.selectAll(sender)
+    }
+
+    @objc func copy(_ sender: Any?) {
+        editorView.copy(sender)
+    }
+
+    @objc func cut(_ sender: Any?) {
+        editorView.cut(sender)
+    }
+
+    @objc func paste(_ sender: Any?) {
+        editorView.paste(sender)
+    }
+
+    @objc func undo(_ sender: Any?) {
+        editorView.undo(sender)
+    }
+
+    @objc func redo(_ sender: Any?) {
+        editorView.redo(sender)
+    }
+
+    func configureViewport() {
+        synchronizeViewportMetrics()
+        lastAppliedZoom = editorView.viewportController?.zoom ?? 1.0
+        editorView.refreshLayout()
+    }
+
+    func synchronizeViewportState() {
+        synchronizeViewportMetrics()
+
+        guard let viewportController = editorView.viewportController else {
+            editorView.refreshLayout()
+            return
+        }
+
+        if abs(viewportController.zoom - lastAppliedZoom) > 0.0001 {
+            applyZoom(viewportController.zoom, anchorInDocumentView: nil, updateModel: false)
+            return
+        }
+
+        editorView.refreshLayout()
+    }
+
+    func applyZoom(_ zoom: CGFloat, anchorInDocumentView anchorPoint: CGPoint?, updateModel: Bool) {
+        let previousVisibleRect = contentView.bounds
+        let previousDocumentSize = maxDocumentSize(editorView.frame.size)
+        let normalizedAnchor = normalizedAnchorPoint(
+            anchorPoint: anchorPoint,
+            visibleRect: previousVisibleRect,
+            documentSize: previousDocumentSize
+        )
+        let viewportAnchorOffset = anchorOffset(anchorPoint: anchorPoint, visibleRect: previousVisibleRect)
+
+        if updateModel {
+            editorView.documentController?.setZoom(zoom)
+        }
+
+        synchronizeViewportMetrics()
+        editorView.refreshLayout()
+
+        let nextDocumentSize = maxDocumentSize(editorView.frame.size)
+        let nextAnchorPoint = CGPoint(
+            x: normalizedAnchor.x * nextDocumentSize.width,
+            y: normalizedAnchor.y * nextDocumentSize.height
+        )
+        let nextOrigin = CGPoint(
+            x: nextAnchorPoint.x - viewportAnchorOffset.x,
+            y: nextAnchorPoint.y - viewportAnchorOffset.y
+        )
+
+        scrollToClampedOrigin(nextOrigin)
+        lastAppliedZoom = editorView.viewportController?.zoom ?? zoom
+    }
+
+    private func synchronizeViewportMetrics() {
+        editorView.viewportController?.updateViewportSize(contentSize)
+    }
+
+    private func normalizedAnchorPoint(
+        anchorPoint: CGPoint?,
+        visibleRect: CGRect,
+        documentSize: CGSize
+    ) -> CGPoint {
+        let referencePoint = anchorPoint ?? CGPoint(x: visibleRect.midX, y: visibleRect.midY)
+        return CGPoint(
+            x: clamp(referencePoint.x / max(documentSize.width, 1), min: 0, max: 1),
+            y: clamp(referencePoint.y / max(documentSize.height, 1), min: 0, max: 1)
+        )
+    }
+
+    private func anchorOffset(anchorPoint: CGPoint?, visibleRect: CGRect) -> CGPoint {
+        if let anchorPoint {
+            return CGPoint(
+                x: anchorPoint.x - visibleRect.minX,
+                y: anchorPoint.y - visibleRect.minY
+            )
+        }
+
+        return CGPoint(x: visibleRect.width * 0.5, y: visibleRect.height * 0.5)
+    }
+
+    private func scrollToClampedOrigin(_ origin: CGPoint) {
+        let documentSize = maxDocumentSize(editorView.frame.size)
+        let viewportSize = contentView.bounds.size
+        let clampedOrigin = CGPoint(
+            x: clamp(origin.x, min: 0, max: max(documentSize.width - viewportSize.width, 0)),
+            y: clamp(origin.y, min: 0, max: max(documentSize.height - viewportSize.height, 0))
+        )
+
+        contentView.scroll(to: clampedOrigin)
+        reflectScrolledClipView(contentView)
+    }
+
+    private func maxDocumentSize(_ size: CGSize) -> CGSize {
+        CGSize(width: max(size.width, 1), height: max(size.height, 1))
+    }
+
+    private func clamp(_ value: CGFloat, min lowerBound: CGFloat, max upperBound: CGFloat) -> CGFloat {
+        Swift.max(lowerBound, Swift.min(value, upperBound))
+    }
 }
 
 @MainActor
@@ -47,17 +196,46 @@ final class EditorCanvasNSView: NSView {
 
     private let renderer = PageRenderer()
     private var markedTextStorage: NSAttributedString?
+    private var markedBaseRange = NSRange(location: NSNotFound, length: 0)
     private var markedSelection = NSRange(location: NSNotFound, length: 0)
     private var isDraggingSelection = false
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+
+        guard let window else { return }
+        if window.firstResponder == nil || window.firstResponder === window.contentView {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let window = self.window else { return }
+                window.makeFirstResponder(self)
+            }
+        }
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let didBecome = super.becomeFirstResponder()
+        if didBecome {
+            inputContext?.invalidateCharacterCoordinates()
+        }
+        return didBecome
+    }
+
+    override func resignFirstResponder() -> Bool {
+        inputContext?.discardMarkedText()
+        clearMarkedText()
+        documentController?.finishTextComposition()
+        return super.resignFirstResponder()
+    }
+
     func refreshLayout() {
         let size = viewportController?.documentSize ?? CGSize(width: 1000, height: 700)
         if frame.size != size {
             setFrameSize(size)
         }
+        inputContext?.invalidateCharacterCoordinates()
         needsDisplay = true
     }
 
@@ -86,8 +264,6 @@ final class EditorCanvasNSView: NSView {
                 continue
             }
 
-            drawSelectionRects(pageIndex: pageIndex, pageRect: pageRect)
-
             let caret = documentController.currentCaret?.rect.pageIndex == pageIndex
                 ? documentController.currentCaret
                 : nil
@@ -100,12 +276,15 @@ final class EditorCanvasNSView: NSView {
                 caret: caret
             )
 
-            drawMarkedTextIfNeeded(pageIndex: pageIndex, pageRect: pageRect)
+            drawSelectionRects(pageIndex: pageIndex, pageRect: pageRect)
         }
     }
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        inputContext?.discardMarkedText()
+        clearMarkedText()
+        documentController?.finishTextComposition()
         isDraggingSelection = false
 
         guard
@@ -118,6 +297,7 @@ final class EditorCanvasNSView: NSView {
         let pagePoint = viewportController.convertToPageSpace(point, pageIndex: pageIndex)
         let extendSelection = event.modifierFlags.contains(.shift)
         documentController.setCaretFromHit(pageIndex: pageIndex, x: pagePoint.x, y: pagePoint.y, extendSelection: extendSelection)
+        inputContext?.invalidateCharacterCoordinates()
         needsDisplay = true
     }
 
@@ -128,6 +308,7 @@ final class EditorCanvasNSView: NSView {
         let pagePoint = viewportController.convertToPageSpace(point, pageIndex: pageIndex)
         isDraggingSelection = true
         documentController.setCaretFromHit(pageIndex: pageIndex, x: pagePoint.x, y: pagePoint.y, extendSelection: true, updateStatus: false)
+        inputContext?.invalidateCharacterCoordinates()
         needsDisplay = true
     }
 
@@ -139,6 +320,9 @@ final class EditorCanvasNSView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if inputContext?.handleEvent(event) == true {
+            return
+        }
         interpretKeyEvents([event])
     }
 
@@ -151,15 +335,19 @@ final class EditorCanvasNSView: NSView {
             switch event.charactersIgnoringModifiers?.lowercased() {
             case "c":
                 _ = documentController.copySelection()
+                refreshLayout()
                 return true
             case "x":
                 documentController.cutSelection()
+                refreshLayout()
                 return true
             case "v":
                 documentController.pasteFromPasteboard()
+                refreshLayout()
                 return true
             case "a":
                 documentController.selectAll()
+                refreshLayout()
                 return true
             default:
                 break
@@ -170,9 +358,40 @@ final class EditorCanvasNSView: NSView {
     }
 
     override func magnify(with event: NSEvent) {
-        guard let documentController, let viewportController else { return }
+        guard let viewportController else { return }
         let nextZoom = viewportController.zoom * (1 + event.magnification)
-        documentController.setZoom(nextZoom)
+        let anchor = convert(event.locationInWindow, from: nil)
+        (enclosingScrollView as? EditorScrollView)?.applyZoom(nextZoom, anchorInDocumentView: anchor, updateModel: true)
+        inputContext?.invalidateCharacterCoordinates()
+    }
+
+    @objc func copy(_ sender: Any?) {
+        _ = documentController?.copySelection()
+        refreshLayout()
+    }
+
+    @objc func cut(_ sender: Any?) {
+        documentController?.cutSelection()
+        refreshLayout()
+    }
+
+    @objc func paste(_ sender: Any?) {
+        documentController?.pasteFromPasteboard()
+        refreshLayout()
+    }
+
+    override func selectAll(_ sender: Any?) {
+        documentController?.selectAll()
+        refreshLayout()
+    }
+
+    @objc func undo(_ sender: Any?) {
+        documentController?.undo()
+        refreshLayout()
+    }
+
+    @objc func redo(_ sender: Any?) {
+        documentController?.redo()
         refreshLayout()
     }
 }
@@ -191,11 +410,26 @@ extension EditorCanvasNSView: @preconcurrency NSTextInputClient {
             return
         }
 
-        markedTextStorage = nil
-        markedSelection = NSRange(location: NSNotFound, length: 0)
+        let targetRange = currentMarkedRange() ?? sanitizedDocumentRange(replacementRange)
+        let previousMarkedText = markedTextStorage?.string
+        clearMarkedText()
 
-        guard !text.isEmpty else { return }
-        documentController.insertText(text)
+        guard !text.isEmpty else {
+            documentController.finishTextComposition()
+            return
+        }
+        if let targetRange {
+            if previousMarkedText != text || targetRange.length != text.count {
+                documentController.replaceTextInInputRange(
+                    targetRange,
+                    with: text,
+                    coalescingComposition: true
+                )
+            }
+        } else {
+            documentController.insertText(text)
+        }
+        documentController.finishTextComposition()
         refreshLayout()
     }
 
@@ -205,6 +439,8 @@ extension EditorCanvasNSView: @preconcurrency NSTextInputClient {
         switch selector {
         case #selector(NSResponder.deleteBackward(_:)):
             documentController.deleteBackward()
+        case #selector(NSResponder.deleteForward(_:)):
+            documentController.deleteForward()
         case #selector(NSResponder.insertNewline(_:)):
             documentController.insertParagraphBreak()
         case #selector(NSResponder.insertTab(_:)):
@@ -221,18 +457,25 @@ extension EditorCanvasNSView: @preconcurrency NSTextInputClient {
                 documentController.moveVertical(delta: -1, extendSelection: extendSelection)
             case "moveDown:":
                 documentController.moveVertical(delta: 1, extendSelection: extendSelection)
+            case "moveToBeginningOfLine:", "moveToBeginningOfParagraph:":
+                documentController.moveToParagraphBoundary(toEnd: false, extendSelection: extendSelection)
+            case "moveToEndOfLine:", "moveToEndOfParagraph:":
+                documentController.moveToParagraphBoundary(toEnd: true, extendSelection: extendSelection)
             case "cancelOperation:":
-                markedTextStorage = nil
-                markedSelection = NSRange(location: NSNotFound, length: 0)
+                clearMarkedText()
+                documentController.finishTextComposition()
             default:
                 break
             }
         }
 
+        inputContext?.invalidateCharacterCoordinates()
         refreshLayout()
     }
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        guard let documentController else { return }
+
         let attributed: NSAttributedString
         if let value = string as? NSAttributedString {
             attributed = value
@@ -242,33 +485,48 @@ extension EditorCanvasNSView: @preconcurrency NSTextInputClient {
             attributed = NSAttributedString(string: "")
         }
 
-        markedTextStorage = attributed.length == 0 ? nil : attributed
+        let targetRange = currentMarkedRange()
+            ?? sanitizedDocumentRange(replacementRange)
+            ?? sanitizedDocumentRange(documentController.currentInputSelectionRange())
+
+        guard let targetRange else { return }
+
+        documentController.replaceTextInInputRange(
+            targetRange,
+            with: attributed.string,
+            coalescingComposition: true
+        )
+
+        guard attributed.length > 0 else {
+            clearMarkedText()
+            needsDisplay = true
+            return
+        }
+
+        markedTextStorage = attributed
+        markedBaseRange = NSRange(location: targetRange.location, length: attributed.length)
         markedSelection = selectedRange
+        inputContext?.invalidateCharacterCoordinates()
         needsDisplay = true
     }
 
     func unmarkText() {
-        markedTextStorage = nil
-        markedSelection = NSRange(location: NSNotFound, length: 0)
+        clearMarkedText()
+        documentController?.finishTextComposition()
         needsDisplay = true
     }
 
     func selectedRange() -> NSRange {
-        guard let caret = documentController?.currentCaret?.position else {
-            return NSRange(location: NSNotFound, length: 0)
+        if let markedRange = currentMarkedRange() {
+            let location = markedRange.location + max(markedSelection.location, 0)
+            return NSRange(location: location, length: max(markedSelection.length, 0))
         }
-        return NSRange(location: caret.charOffset, length: 0)
+
+        return documentController?.currentInputSelectionRange() ?? NSRange(location: NSNotFound, length: 0)
     }
 
     func markedRange() -> NSRange {
-        guard let markedTextStorage else {
-            return NSRange(location: NSNotFound, length: 0)
-        }
-        let base = selectedRange()
-        guard base.location != NSNotFound else {
-            return NSRange(location: NSNotFound, length: 0)
-        }
-        return NSRange(location: max(base.location, 0), length: markedTextStorage.length)
+        currentMarkedRange() ?? NSRange(location: NSNotFound, length: 0)
     }
 
     func hasMarkedText() -> Bool {
@@ -276,12 +534,28 @@ extension EditorCanvasNSView: @preconcurrency NSTextInputClient {
     }
 
     func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
-        guard let markedTextStorage else {
-            actualRange?.pointee = NSRange(location: NSNotFound, length: 0)
-            return nil
+        if
+            let markedTextStorage,
+            let markedRange = currentMarkedRange()
+        {
+            let intersection = NSIntersectionRange(range, markedRange)
+            if intersection.length > 0 {
+                let relative = NSRange(
+                    location: max(intersection.location - markedRange.location, 0),
+                    length: intersection.length
+                )
+                actualRange?.pointee = intersection
+                return markedTextStorage.attributedSubstring(from: relative)
+            }
         }
-        actualRange?.pointee = NSRange(location: 0, length: markedTextStorage.length)
-        return markedTextStorage
+
+        if let substring = documentController?.attributedSubstringForInput(range: range) {
+            actualRange?.pointee = range
+            return substring
+        }
+
+        actualRange?.pointee = NSRange(location: NSNotFound, length: 0)
+        return nil
     }
 
     func validAttributesForMarkedText() -> [NSAttributedString.Key] {
@@ -290,6 +564,29 @@ extension EditorCanvasNSView: @preconcurrency NSTextInputClient {
 
     func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
         actualRange?.pointee = range
+
+        if
+            let viewportController,
+            let caret = documentController?.currentCaret,
+            let markedRange = currentMarkedRange(),
+            NSLocationInRange(range.location, markedRange)
+        {
+            let pageRect = viewportController.pageRect(at: caret.rect.pageIndex)
+            let caretHeight = max(16, caret.rect.height * viewportController.zoom)
+            let font = markedTextFont(caretHeight: caretHeight)
+            let prefixWidth = markedPrefixWidth(
+                for: range.location - markedRange.location,
+                font: font
+            )
+            let localRect = CGRect(
+                x: pageRect.minX + caret.rect.x * viewportController.zoom + prefixWidth,
+                y: pageRect.minY + caret.rect.y * viewportController.zoom,
+                width: max(1, viewportController.zoom),
+                height: caretHeight
+            )
+            let windowRect = convert(localRect, to: nil)
+            return window?.convertToScreen(windowRect) ?? windowRect
+        }
 
         guard
             let caret = documentController?.currentCaret?.rect,
@@ -361,7 +658,7 @@ private extension EditorCanvasNSView {
         guard !rects.isEmpty else { return }
 
         context.saveGState()
-        context.setFillColor(NSColor.controlAccentColor.withAlphaComponent(0.22).cgColor)
+        context.setFillColor(NSColor.controlAccentColor.withAlphaComponent(0.28).cgColor)
         for rect in rects {
             let scaledRect = CGRect(
                 x: pageRect.minX + rect.x * viewportController.zoom,
@@ -374,29 +671,41 @@ private extension EditorCanvasNSView {
         context.restoreGState()
     }
 
-    private func drawMarkedTextIfNeeded(pageIndex: Int, pageRect: CGRect) {
-        guard
-            let markedTextStorage,
-            let viewportController,
-            let caret = documentController?.currentCaret,
-            caret.rect.pageIndex == pageIndex
-        else { return }
+    private func clearMarkedText() {
+        markedTextStorage = nil
+        markedBaseRange = NSRange(location: NSNotFound, length: 0)
+        markedSelection = NSRange(location: NSNotFound, length: 0)
+        inputContext?.invalidateCharacterCoordinates()
+    }
 
-        let font = NSFont.systemFont(ofSize: 14, weight: .medium)
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: NSColor.controlAccentColor,
-            .underlineStyle: NSUnderlineStyle.single.rawValue,
-        ]
-        let attributed = NSMutableAttributedString(attributedString: markedTextStorage)
-        attributed.addAttributes(attributes, range: NSRange(location: 0, length: attributed.length))
+    private func currentMarkedRange() -> NSRange? {
+        guard let markedTextStorage, markedBaseRange.location != NSNotFound else {
+            return nil
+        }
+        return NSRange(location: max(markedBaseRange.location, 0), length: markedTextStorage.length)
+    }
 
-        let drawRect = CGRect(
-            x: pageRect.minX + caret.rect.x * viewportController.zoom,
-            y: pageRect.minY + caret.rect.y * viewportController.zoom - 20,
-            width: max(80, CGFloat(attributed.length) * font.pointSize),
-            height: 24
+    private func sanitizedDocumentRange(_ range: NSRange) -> NSRange? {
+        guard range.location != NSNotFound, range.location >= 0, range.length >= 0 else {
+            return nil
+        }
+        return range
+    }
+
+    private func markedPrefixWidth(for location: Int, font: NSFont) -> CGFloat {
+        guard let markedTextStorage else { return 0 }
+        let clampedLength = max(0, min(location, markedTextStorage.length))
+        guard clampedLength > 0 else { return 0 }
+        let prefix = markedTextStorage.attributedSubstring(from: NSRange(location: 0, length: clampedLength))
+        let measure = NSMutableAttributedString(attributedString: prefix)
+        measure.addAttribute(.font, value: font, range: NSRange(location: 0, length: measure.length))
+        return measure.size().width
+    }
+
+    private func markedTextFont(caretHeight: CGFloat) -> NSFont {
+        NSFont.systemFont(
+            ofSize: max(10, min(34, caretHeight * 0.82)),
+            weight: .medium
         )
-        attributed.draw(in: drawRect)
     }
 }

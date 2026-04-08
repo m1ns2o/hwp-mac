@@ -7,10 +7,15 @@ struct ContentView: View {
     @ObservedObject private var viewportController: ViewportController
     @ObservedObject private var inspectorViewModel: InspectorViewModel
     private let initialDocumentURL: URL?
+    @AppStorage("ui.inspectorCollapsed") private var isInspectorCollapsed = false
 
     @State private var newTableRows: Int = 2
     @State private var newTableColumns: Int = 2
+    @State private var isFindReplacePresented = false
+    @State private var activeDialog: EditorDialogState?
     @State private var didLoadInitialDocument = false
+
+    private let inspectorPanelWidth: CGFloat = 320
 
     init(
         documentController: DocumentController,
@@ -25,30 +30,119 @@ struct ContentView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                EditorToolbar(
-                    documentController: documentController,
-                    viewportController: viewportController,
-                    inspectorViewModel: inspectorViewModel,
-                    newTableRows: $newTableRows,
-                    newTableColumns: $newTableColumns
-                )
+            if isInspectorCollapsed {
+                collapsedInspectorRail
                 Divider()
-                EditorCanvasView(
-                    documentController: documentController,
-                    viewportController: viewportController
-                )
+            } else {
+                inspectorPanel
+                    .frame(width: inspectorPanelWidth)
+                    .background(Color(nsColor: NSColor.windowBackgroundColor))
                 Divider()
-                statusBar
             }
 
-            Divider()
+            ZStack(alignment: .topTrailing) {
+                VStack(spacing: 0) {
+                    EditorToolbar(
+                        documentController: documentController,
+                        viewportController: viewportController,
+                        newTableRows: $newTableRows,
+                        newTableColumns: $newTableColumns,
+                        isFindReplacePresented: $isFindReplacePresented,
+                        activeDialog: $activeDialog
+                    )
+                    Divider()
+                    EditorRulerView(
+                        documentController: documentController,
+                        viewportController: viewportController
+                    )
+                    Divider()
+                    EditorCanvasView(
+                        documentController: documentController,
+                        viewportController: viewportController
+                    )
+                    Divider()
+                    statusBar
+                }
 
-            inspectorPanel
-                .frame(width: 320)
-                .background(Color(nsColor: NSColor.windowBackgroundColor))
+                if isFindReplacePresented {
+                    FindReplacePanel(
+                        documentController: documentController,
+                        isPresented: $isFindReplacePresented
+                    )
+                    .padding(.top, 112)
+                    .padding(.trailing, 26)
+                    .zIndex(10)
+                }
+
+                if activeDialog == .charShape {
+                    CharShapeDialogView(
+                        documentController: documentController,
+                        isPresented: Binding(
+                            get: { activeDialog == .charShape },
+                            set: { if !$0 { activeDialog = nil } }
+                        )
+                    )
+                    .zIndex(20)
+                }
+
+                if activeDialog == .paraShape {
+                    ParaShapeDialogView(
+                        documentController: documentController,
+                        isPresented: Binding(
+                            get: { activeDialog == .paraShape },
+                            set: { if !$0 { activeDialog = nil } }
+                        )
+                    )
+                    .zIndex(20)
+                }
+
+                if activeDialog == .tableProperties {
+                    TablePropertiesDialogView(
+                        documentController: documentController,
+                        isPresented: Binding(
+                            get: { activeDialog == .tableProperties },
+                            set: { if !$0 { activeDialog = nil } }
+                        )
+                    )
+                    .zIndex(20)
+                }
+
+                if activeDialog == .mergeCells {
+                    MergeCellsDialogView(
+                        documentController: documentController,
+                        isPresented: Binding(
+                            get: { activeDialog == .mergeCells },
+                            set: { if !$0 { activeDialog = nil } }
+                        )
+                    )
+                    .zIndex(20)
+                }
+
+                if activeDialog == .bookmarks {
+                    BookmarkDialogView(
+                        documentController: documentController,
+                        isPresented: Binding(
+                            get: { activeDialog == .bookmarks },
+                            set: { if !$0 { activeDialog = nil } }
+                        )
+                    )
+                    .zIndex(20)
+                }
+
+                if activeDialog == .fields {
+                    FieldDialogView(
+                        documentController: documentController,
+                        isPresented: Binding(
+                            get: { activeDialog == .fields },
+                            set: { if !$0 { activeDialog = nil } }
+                        )
+                    )
+                    .zIndex(20)
+                }
+            }
         }
         .background(Color(nsColor: NSColor(calibratedRed: 0.93, green: 0.93, blue: 0.95, alpha: 1)))
+        .animation(.easeInOut(duration: 0.18), value: isInspectorCollapsed)
         .focusedSceneValue(\.activeDocumentController, documentController)
         .onAppear {
             loadInitialDocumentIfNeeded()
@@ -64,8 +158,27 @@ struct ContentView: View {
     private var inspectorPanel: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text("Inspector")
-                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Inspector")
+                            .font(.system(size: 20, weight: .semibold, design: .rounded))
+
+                        Text("문서 정보와 편집 도구")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Button {
+                        isInspectorCollapsed = true
+                    } label: {
+                        Image(systemName: "sidebar.left")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .buttonStyle(.borderless)
+                    .help("인스펙터 접기")
+                }
 
                 GroupBox("문서") {
                     VStack(alignment: .leading, spacing: 10) {
@@ -208,6 +321,25 @@ struct ContentView: View {
             }
             .padding(18)
         }
+    }
+
+    private var collapsedInspectorRail: some View {
+        VStack(spacing: 0) {
+            Button {
+                isInspectorCollapsed = false
+            } label: {
+                Image(systemName: "sidebar.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 14)
+            .help("인스펙터 열기")
+
+            Spacer()
+        }
+        .frame(width: 36)
+        .background(Color(nsColor: NSColor.windowBackgroundColor))
     }
 
     private var tableSizeLabel: String {

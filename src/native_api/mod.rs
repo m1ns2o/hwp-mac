@@ -416,6 +416,19 @@ fn dispatch_operation(core: &mut DocumentCore, op: &str, payload: &Value) -> Res
                     .map_err(|error| error.to_string())
             }
         }
+        "get_text_range" => {
+            let sec = req_usize(payload, "sec")?;
+            let para = req_usize(payload, "para")?;
+            let char_offset = req_usize(payload, "charOffset")?;
+            let count = req_usize(payload, "count")?;
+            if let Some((parent_para, control_index, cell_index, _)) = cell_context(payload)? {
+                core.get_text_in_cell_native(sec, parent_para, control_index, cell_index, para, char_offset, count)
+                    .map_err(|error| error.to_string())
+            } else {
+                core.get_text_range_native(sec, para, char_offset, count)
+                    .map_err(|error| error.to_string())
+            }
+        }
         "get_paragraph_count" => {
             let sec = req_usize(payload, "sec")?;
             if let Some((parent_para, control_index, cell_index, _)) = cell_context(payload)? {
@@ -566,6 +579,66 @@ fn dispatch_operation(core: &mut DocumentCore, op: &str, payload: &Value) -> Res
                     .map_err(|error| error.to_string())
             }
         }
+        "find_or_create_font_id" => Ok(json!({
+            "id": core.find_or_create_font_id_native(req_str(payload, "name")?)
+        }).to_string()),
+        "ensure_default_numbering" => {
+            use crate::model::style::{Numbering, NumberingHead};
+
+            let id = if core.document.doc_info.numberings.is_empty() {
+                let mut numbering = Numbering::default();
+                numbering.level_formats = [
+                    "^1.".to_string(),
+                    "^2)".to_string(),
+                    "^3)".to_string(),
+                    "^4)".to_string(),
+                    "^5)".to_string(),
+                    "^6)".to_string(),
+                    "^7)".to_string(),
+                ];
+                numbering.start_number = 1;
+                numbering.level_start_numbers = [1; 7];
+                numbering.heads[0] = NumberingHead { number_format: 0, ..Default::default() };
+                numbering.heads[1] = NumberingHead { number_format: 8, ..Default::default() };
+                numbering.heads[2] = NumberingHead { number_format: 0, ..Default::default() };
+                numbering.heads[3] = NumberingHead { number_format: 8, ..Default::default() };
+                numbering.heads[4] = NumberingHead { number_format: 1, ..Default::default() };
+                numbering.heads[5] = NumberingHead { number_format: 10, ..Default::default() };
+                numbering.heads[6] = NumberingHead { number_format: 5, ..Default::default() };
+                core.document.doc_info.numberings.push(numbering);
+                1
+            } else {
+                1
+            };
+
+            Ok(json!({ "id": id }).to_string())
+        }
+        "ensure_default_bullet" => {
+            let bullet_ch = req_str(payload, "char")?.chars().next().unwrap_or('●');
+            let mut found_id = None;
+            for (index, bullet) in core.document.doc_info.bullets.iter().enumerate() {
+                let mapped = crate::renderer::layout::map_pua_bullet_char(bullet.bullet_char);
+                if mapped == bullet_ch {
+                    found_id = Some(index + 1);
+                    break;
+                }
+            }
+
+            let id = if let Some(found_id) = found_id {
+                found_id
+            } else {
+                use crate::model::style::Bullet;
+                let bullet = Bullet {
+                    bullet_char: bullet_ch,
+                    text_distance: 50,
+                    ..Default::default()
+                };
+                core.document.doc_info.bullets.push(bullet);
+                core.document.doc_info.bullets.len()
+            };
+
+            Ok(json!({ "id": id }).to_string())
+        }
         "create_table" => core
             .create_table_native(
                 req_usize(payload, "sec")?,
@@ -671,6 +744,35 @@ fn dispatch_operation(core: &mut DocumentCore, op: &str, payload: &Value) -> Res
         "delete_table_control" => core
             .delete_table_control_native(req_usize(payload, "sec")?, req_usize(payload, "parentPara")?, req_usize(payload, "controlIndex")?)
             .map_err(|error| error.to_string()),
+        "get_header_footer" => core
+            .get_header_footer_native(
+                req_usize(payload, "sec")?,
+                req_bool(payload, "isHeader")?,
+                req_u8(payload, "applyTo")?,
+            )
+            .map_err(|error| error.to_string()),
+        "get_header_footer_list" => core
+            .get_header_footer_list_native(
+                req_usize(payload, "sec")?,
+                req_bool(payload, "isHeader")?,
+                req_u8(payload, "applyTo")?,
+            )
+            .map_err(|error| error.to_string()),
+        "delete_header_footer" => core
+            .delete_header_footer_native(
+                req_usize(payload, "sec")?,
+                req_bool(payload, "isHeader")?,
+                req_u8(payload, "applyTo")?,
+            )
+            .map_err(|error| error.to_string()),
+        "apply_header_footer_template" => core
+            .apply_hf_template_native(
+                req_usize(payload, "sec")?,
+                req_bool(payload, "isHeader")?,
+                req_u8(payload, "applyTo")?,
+                req_u8(payload, "templateId")?,
+            )
+            .map_err(|error| error.to_string()),
         "get_field_list" => Ok(core.get_field_list_json()),
         "get_field_value_by_name" => core
             .get_field_value_by_name(req_str(payload, "name")?)
@@ -751,6 +853,13 @@ fn req_u32(payload: &Value, key: &str) -> Result<u32, String> {
     u32::try_from(number).map_err(|_| format!("필드 '{}' 값이 너무 큽니다", key))
 }
 
+fn req_u8(payload: &Value, key: &str) -> Result<u8, String> {
+    let number = req_value(payload, key)?
+        .as_u64()
+        .ok_or_else(|| format!("필드 '{}' 는 양의 정수여야 합니다", key))?;
+    u8::try_from(number).map_err(|_| format!("필드 '{}' 값이 너무 큽니다", key))
+}
+
 fn req_u16(payload: &Value, key: &str) -> Result<u16, String> {
     let number = req_value(payload, key)?
         .as_u64()
@@ -763,6 +872,12 @@ fn req_i32(payload: &Value, key: &str) -> Result<i32, String> {
         .as_i64()
         .ok_or_else(|| format!("필드 '{}' 는 정수여야 합니다", key))?;
     i32::try_from(number).map_err(|_| format!("필드 '{}' 값이 너무 큽니다", key))
+}
+
+fn req_bool(payload: &Value, key: &str) -> Result<bool, String> {
+    req_value(payload, key)?
+        .as_bool()
+        .ok_or_else(|| format!("필드 '{}' 는 bool 이어야 합니다", key))
 }
 
 fn req_f64(payload: &Value, key: &str) -> Result<f64, String> {

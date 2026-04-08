@@ -91,28 +91,32 @@ final class PageRenderer {
         }
 
         let font = resolvedFont(style: run.style)
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineBreakMode = .byClipping
+        let drawOriginY = textOriginY(for: run, bbox: bbox, font: font)
+        let textAttributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor(cssHex: run.style.color),
+            .underlineStyle: run.style.underline == "None" ? 0 : NSUnderlineStyle.single.rawValue,
+            .strikethroughStyle: run.style.strikethrough ? NSUnderlineStyle.single.rawValue : 0,
+        ]
 
-        let attributed = NSAttributedString(
-            string: run.text,
-            attributes: [
-                .font: font,
-                .foregroundColor: NSColor(cssHex: run.style.color),
-                .underlineStyle: run.style.underline == "None" ? 0 : NSUnderlineStyle.single.rawValue,
-                .strikethroughStyle: run.style.strikethrough ? NSUnderlineStyle.single.rawValue : 0,
-                .kern: run.style.letterSpacing,
-                .paragraphStyle: paragraph,
-            ]
-        )
+        if drawTextRunUsingResolvedPositions(
+            run,
+            bbox: bbox,
+            originY: drawOriginY,
+            attributes: textAttributes,
+            in: context
+        ) {
+            return
+        }
 
-        let drawRect = CGRect(
-            x: bbox.minX,
-            y: bbox.minY,
-            width: max(bbox.width, font.pointSize * CGFloat(max(run.text.count, 1))),
-            height: max(bbox.height, font.pointSize * 1.4)
+        let fallbackAttributes = textAttributes.merging(
+            [.kern: run.style.letterSpacing],
+            uniquingKeysWith: { _, new in new }
         )
-        attributed.draw(in: drawRect)
+        NSString(string: run.text).draw(
+            at: CGPoint(x: bbox.minX, y: drawOriginY),
+            withAttributes: fallbackAttributes
+        )
     }
 
     private func drawLine(_ line: RHWPLinePayload, in context: CGContext) {
@@ -242,6 +246,67 @@ final class PageRenderer {
             font = manager.convert(font, toHaveTrait: .italicFontMask)
         }
         return font
+    }
+
+    private func drawTextRunUsingResolvedPositions(
+        _ run: RHWPTextRunPayload,
+        bbox: CGRect,
+        originY: CGFloat,
+        attributes: [NSAttributedString.Key: Any],
+        in context: CGContext
+    ) -> Bool {
+        guard
+            let charX = run.charX,
+            !charX.isEmpty
+        else {
+            return false
+        }
+
+        let scalars = Array(run.text.unicodeScalars)
+        guard charX.count >= scalars.count + 1 else {
+            return false
+        }
+
+        for (index, scalar) in scalars.enumerated() {
+            let origin = CGPoint(
+                x: bbox.minX + charX[index],
+                y: originY
+            )
+            drawScalar(
+                String(scalar),
+                at: origin,
+                style: run.style,
+                attributes: attributes,
+                in: context
+            )
+        }
+
+        return true
+    }
+
+    private func drawScalar(
+        _ scalar: String,
+        at origin: CGPoint,
+        style: RHWPTextStylePayload,
+        attributes: [NSAttributedString.Key: Any],
+        in context: CGContext
+    ) {
+        let ratio = max(style.ratio, 0.1)
+        if abs(ratio - 1.0) > 0.001 {
+            context.saveGState()
+            context.translateBy(x: origin.x, y: 0)
+            context.scaleBy(x: ratio, y: 1)
+            NSString(string: scalar).draw(at: CGPoint(x: 0, y: origin.y), withAttributes: attributes)
+            context.restoreGState()
+            return
+        }
+
+        NSString(string: scalar).draw(at: origin, withAttributes: attributes)
+    }
+
+    private func textOriginY(for run: RHWPTextRunPayload, bbox: CGRect, font: NSFont) -> CGFloat {
+        let baseline = run.baseline.map { CGFloat($0) } ?? font.ascender
+        return bbox.minY + max(baseline - font.ascender, 0)
     }
 
     private func applyDash(_ dash: String, to context: CGContext) {

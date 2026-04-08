@@ -1,0 +1,79 @@
+/*
+ * Copyright 2017 Hancom Inc. All rights reserved.
+ *
+ * https://www.hancom.com/
+ */
+html {
+    -ms-text-size-adjust: none;
+    -webkit-text-size-adjust: none;
+    text-size-adjust: none;
+}
+
+canvas {
+    image-rendering : optimizeSpeed;
+    image-rendering : -moz-crisp-edges;
+    image-rendering : -webkit-optimize-contrast;
+    image-rendering : -o-crisp-edges;
+    image-rendering : pixelated;
+    -ms-interpolation-mode : nearest-neighbor;
+}
+
+@keyframes blink {
+	0% { opacity : 0.0; }
+    39% { opacity : 0.0; }
+	40% { opacity : 1.0; }
+	100% { opacity : 1.0; }
+}
+
+.BLINK_CURSOR {
+    opacity:1.0;
+    animation : blink 1.2s infinite;
+    z-index: 2;
+}
+
+.HIDDEN_CURSOR {
+    opacity:0.0;
+    animation : none;
+    z-index: -1000;
+}
+
+@page {
+    /* size 는 페이지 설정에 따라 조정됨*/
+    margin:0;
+}
+
+@media print {
+    /* Rediff - 브라우저의 '인쇄' 메뉴 막을 경우, 해당 class 추가 */
+    body.doNotPrint {display: none !important;}
+}
+
+.user_cursor_container div {
+    position: absolute;
+    width: 5px;
+    height : 5px;
+    background-color: inherit;
+}
+
+.user_cursor_container span {
+    position: absolute;
+    height: 16px;
+    font-size: 10px;
+    color: #FFFFFF;
+    background-color: inherit;
+    bottom: 0;
+    padding: 0 5px;
+    white-space: nowrap;
+}
+
+.video_wrap {position: absolute; display: none}
+.video_wrap.on {display: block}
+.video_wrap > iframe {width: 100%; height: 100%; border: none;}
+.video_wrap.resizing .resize_wrap {position:absolute; height:100%; width:100%; top:0; z-index:100000;}
+
+#tooltip { background-color: #FFF1CE; border: 1px solid #DAA529; box-shadow: 4px 4px 8px #C6C6C6; padding : 4px; max-width: 50vw; position: absolute; font-size:12px;}
+#tooltip div { word-wrap: break-word; margin-top: 4px; word-break: break-word; min-height: 12px;}
+#tooltip span { font-weight: bold; white-space: nowrap; }
+
+#assistant_simple_chat_button {top: 10px; left: 10px; position: relative; width: 32px; height: 32px; background-color: white; cursor: pointer; overflow: hidden; border-radius: 4px;}
+#assistant_simple_chat_button:hover {background-color: #D7DBE2;}
+#assistant_simple_chat_button img {max-width: 100%; max-height: 100%; pointer-events: none;}

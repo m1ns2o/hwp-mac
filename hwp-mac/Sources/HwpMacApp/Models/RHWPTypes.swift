@@ -151,6 +151,11 @@ struct RHWPBasicResult: Codable {
     let ok: Bool
 }
 
+struct RHWPOperationStatus: Codable {
+    let ok: Bool
+    let error: String?
+}
+
 struct RHWPSearchResult: Codable {
     let found: Bool
     let wrapped: Bool?
@@ -167,10 +172,63 @@ struct RHWPCharProperties: Codable {
     let italic: Bool
     let underline: Bool
     let underlineType: String
+    let underlineColor: String?
     let strikethrough: Bool
+    let strikeColor: String?
     let textColor: String
     let shadeColor: String
+    let shadowType: Int?
+    let shadowColor: String?
+    let shadowOffsetX: Int?
+    let shadowOffsetY: Int?
+    let outlineType: Int?
+    let subscriptEnabled: Bool?
+    let superscript: Bool?
+    let emboss: Bool?
+    let engrave: Bool?
+    let emphasisDot: Int?
+    let underlineShape: Int?
+    let strikeShape: Int?
+    let kerning: Bool?
+    let fontFamilies: [String]?
+    let ratios: [Int]?
+    let spacings: [Int]?
+    let relativeSizes: [Int]?
+    let charOffsets: [Int]?
     let charShapeId: Int
+
+    enum CodingKeys: String, CodingKey {
+        case fontFamily
+        case fontSize
+        case bold
+        case italic
+        case underline
+        case underlineType
+        case underlineColor
+        case strikethrough
+        case strikeColor
+        case textColor
+        case shadeColor
+        case shadowType
+        case shadowColor
+        case shadowOffsetX
+        case shadowOffsetY
+        case outlineType
+        case subscriptEnabled = "subscript"
+        case superscript
+        case emboss
+        case engrave
+        case emphasisDot
+        case underlineShape
+        case strikeShape
+        case kerning
+        case fontFamilies
+        case ratios
+        case spacings
+        case relativeSizes
+        case charOffsets
+        case charShapeId
+    }
 }
 
 struct RHWPParaProperties: Codable {
@@ -180,8 +238,153 @@ struct RHWPParaProperties: Codable {
     let paraShapeId: Int
     let headType: String
     let numberingId: Int
+    let paraLevel: Int?
+    let marginLeft: Double?
+    let marginRight: Double?
+    let indent: Double?
     let spacingBefore: Double
     let spacingAfter: Double
+    let widowOrphan: Bool?
+    let keepWithNext: Bool?
+    let keepLines: Bool?
+    let pageBreakBefore: Bool?
+    let fontLineHeight: Bool?
+    let singleLine: Bool?
+    let autoSpaceKrEn: Bool?
+    let autoSpaceKrNum: Bool?
+    let verticalAlign: Int?
+    let englishBreakUnit: Int?
+    let koreanBreakUnit: Int?
+    let tabAutoLeft: Bool?
+    let tabAutoRight: Bool?
+    let tabStops: [RHWPTabStop]?
+    let defaultTabSpacing: Int?
+    let borderFillId: Int?
+    let borderLeft: RHWPBorderSide?
+    let borderRight: RHWPBorderSide?
+    let borderTop: RHWPBorderSide?
+    let borderBottom: RHWPBorderSide?
+    let fillType: String?
+    let fillColor: String?
+    let patternColor: String?
+    let patternType: Int?
+    let borderSpacing: [Int]?
+}
+
+struct RHWPIdentifierResult: Codable {
+    let id: Int
+}
+
+struct RHWPBookmark: Codable, Identifiable, Hashable {
+    let name: String
+    let sec: Int
+    let para: Int
+    let ctrlIdx: Int
+    let charPos: Int
+
+    var id: String {
+        "\(sec):\(para):\(ctrlIdx):\(name)"
+    }
+}
+
+struct RHWPFieldLocationPathEntry: Codable, Hashable {
+    let type: String
+    let controlIndex: Int
+    let cellIndex: Int?
+    let paraIndex: Int
+}
+
+struct RHWPFieldLocation: Codable, Hashable {
+    let sectionIndex: Int
+    let paraIndex: Int
+    let path: [RHWPFieldLocationPathEntry]?
+}
+
+struct RHWPFieldInfo: Codable, Identifiable, Hashable {
+    let fieldId: UInt32
+    let fieldType: String
+    let name: String
+    let guide: String
+    let command: String
+    let value: String
+    let location: RHWPFieldLocation
+
+    var id: UInt32 { fieldId }
+}
+
+struct RHWPTabStop: Codable, Equatable {
+    let position: Int
+    let type: Int
+    let fill: Int
+}
+
+struct RHWPBorderSide: Codable, Equatable {
+    let type: Int
+    let width: Int
+    let color: String
+}
+
+struct RHWPCellProperties: Codable {
+    let width: Int
+    let height: Int
+    let paddingLeft: Int
+    let paddingRight: Int
+    let paddingTop: Int
+    let paddingBottom: Int
+    let verticalAlign: Int
+    let textDirection: Int
+    let isHeader: Bool
+    let cellProtect: Bool
+    let borderFillId: Int
+    let borderLeft: RHWPBorderSide
+    let borderRight: RHWPBorderSide
+    let borderTop: RHWPBorderSide
+    let borderBottom: RHWPBorderSide
+    let fillType: String
+    let fillColor: String
+    let patternColor: String
+    let patternType: Int
+}
+
+struct RHWPTableProperties: Codable {
+    let cellSpacing: Int
+    let paddingLeft: Int
+    let paddingRight: Int
+    let paddingTop: Int
+    let paddingBottom: Int
+    let pageBreak: Int
+    let repeatHeader: Bool
+    let borderFillId: Int
+    let borderLeft: RHWPBorderSide
+    let borderRight: RHWPBorderSide
+    let borderTop: RHWPBorderSide
+    let borderBottom: RHWPBorderSide
+    let fillType: String
+    let fillColor: String
+    let patternColor: String
+    let patternType: Int
+    let tableWidth: Int
+    let tableHeight: Int
+    let outerLeft: Int
+    let outerRight: Int
+    let outerTop: Int
+    let outerBottom: Int
+    let hasCaption: Bool
+    let captionDirection: Int?
+    let captionVertAlign: Int?
+    let captionWidth: Int?
+    let captionSpacing: Int?
+    let treatAsChar: Bool
+    let textWrap: String
+    let vertRelTo: String
+    let vertAlign: String
+    let horzRelTo: String
+    let horzAlign: String
+    let vertOffset: Int
+    let horzOffset: Int
+    let restrictInPage: Bool
+    let allowOverlap: Bool
+    let keepWithAnchor: Bool
 }
 
 struct RHWPTableDimensionsResult: Codable {
@@ -293,6 +496,7 @@ struct RHWPTextStylePayload: Codable {
 
 struct RHWPTextRunPayload: Codable {
     let text: String
+    let charX: [Double]?
     let style: RHWPTextStylePayload
     let sectionIndex: Int?
     let paraIndex: Int?

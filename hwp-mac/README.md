@@ -65,13 +65,14 @@ swift build -c release
 
 ## 실행
 
+`swift run HwpMacApp`로 직접 실행하면 터미널 자식 프로세스로 떠서 포커스나 상단 메뉴바가 불안정할 수 있습니다. macOS에서는 `.app` 번들로 여는 방식이 더 안전합니다.
+
 문서 없이 실행:
 
 ```bash
 source "$HOME/.cargo/env"
 export RHWP_LIB_SEARCH_PATH="$(pwd)/target/debug"
-cd hwp-mac
-swift run HwpMacApp
+./hwp-mac/scripts/run-app.sh
 ```
 
 문서를 바로 열면서 실행:
@@ -79,15 +80,31 @@ swift run HwpMacApp
 ```bash
 source "$HOME/.cargo/env"
 export RHWP_LIB_SEARCH_PATH="$(pwd)/target/debug"
-cd hwp-mac
-swift run HwpMacApp ../samples/re-align-left.hwp
+./hwp-mac/scripts/run-app.sh samples/re-align-left.hwp
+```
+
+릴리스 실행:
+
+```bash
+source "$HOME/.cargo/env"
+export RHWP_LIB_SEARCH_PATH="$(pwd)/target/release"
+./hwp-mac/scripts/run-app.sh --release
+```
+
+개발 중 빠르게 다시 확인하려면:
+
+```bash
+source "$HOME/.cargo/env"
+export RHWP_LIB_SEARCH_PATH="$(pwd)/target/debug"
+./hwp-mac/scripts/dev-watch.sh
 ```
 
 ## 개발 메모
 
 - `Package.swift`는 존재하는 Rust 라이브러리 경로만 링커에 전달합니다.
 - 메뉴 명령은 활성 `DocumentController`에 연결됩니다.
-- 툴바는 Word/한글형 기능군을 유지하되 macOS 카드형 섹션으로 정리했습니다.
+- 툴바는 웹 버전의 2단 레이아웃을 유지하되 macOS 컨트롤 톤으로 다시 구성했습니다.
+- 자세한 기능 현황은 `../docs/feature-status.md`에 정리합니다.
 
 ## 다음 후보 작업
 

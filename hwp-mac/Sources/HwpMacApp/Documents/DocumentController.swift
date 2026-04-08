@@ -8,6 +8,11 @@ private struct SelectionBounds {
     let end: RHWPCaretPosition
 }
 
+private enum MutationRefreshPolicy {
+    case full
+    case editing
+}
+
 @MainActor
 final class DocumentController: ObservableObject {
     @Published private(set) var fileURL: URL?
@@ -21,9 +26,14 @@ final class DocumentController: ObservableObject {
     @Published private(set) var paraProperties: RHWPParaProperties?
     @Published private(set) var currentTableDimensions: RHWPTableDimensionsResult?
     @Published private(set) var currentCellInfo: RHWPCellInfoResult?
+    @Published private(set) var currentCellProperties: RHWPCellProperties?
+    @Published private(set) var currentTableProperties: RHWPTableProperties?
+    @Published private(set) var bookmarks: [RHWPBookmark] = []
+    @Published private(set) var fields: [RHWPFieldInfo] = []
     @Published var statusMessage: String = "문서를 열거나 새 문서를 만드세요."
     @Published var searchQuery: String = ""
     @Published var replaceQuery: String = ""
+    @Published var searchCaseSensitive: Bool = false
     @Published var searchStatus: String = ""
     @Published var isDirty: Bool = false
     @Published var selectedPageIndex: Int = 0
@@ -35,6 +45,8 @@ final class DocumentController: ObservableObject {
     private var undoSnapshots: [UInt32] = []
     private var redoSnapshots: [UInt32] = []
     private var lastInternalClipboardText: String?
+    private var deferredRefreshWorkItem: DispatchWorkItem?
+    private var compositionUndoSnapshot: UInt32?
 
     var hasSession: Bool {
         session != nil
@@ -101,6 +113,27 @@ final class DocumentController: ObservableObject {
         }
     }
 
+    func saveDocumentAs() {
+        guard session != nil else {
+            statusMessage = "저장할 문서가 없습니다."
+            return
+        }
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.data]
+        panel.nameFieldStringValue = fileURL?.lastPathComponent ?? displayName
+
+        guard panel.runModal() == .OK, let selectedURL = panel.url else { return }
+        saveDocument(to: selectedURL)
+    }
+
+    func renameDisplayName(_ newName: String) {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        displayName = trimmed
+        statusMessage = "문서 이름을 변경했습니다."
+    }
+
     func loadBlankDocument(displayName: String = "Untitled") throws {
         session?.close()
         session = try EditorSession.createBlank()
@@ -140,6 +173,7 @@ final class DocumentController: ObservableObject {
 
     func reloadDocumentState() throws {
         guard let session else { throw NativeBridgeError.missingSession }
+        cancelDeferredRefresh()
         let info = try session.documentInfo()
         documentInfo = info
         pageInfos = try (0..<info.pageCount).map { try session.pageInfo($0) }
@@ -155,6 +189,10 @@ final class DocumentController: ObservableObject {
             paraProperties = nil
             currentTableDimensions = nil
             currentCellInfo = nil
+            currentCellProperties = nil
+            currentTableProperties = nil
+            bookmarks = []
+            fields = []
             return
         }
 
@@ -169,6 +207,8 @@ final class DocumentController: ObservableObject {
         }
 
         syncDerivedState()
+        try refreshBookmarks()
+        try refreshFields()
     }
 
     func renderTree(for pageIndex: Int) throws -> RHWPRenderNode {
@@ -283,7 +323,7 @@ final class DocumentController: ObservableObject {
         }
 
         guard let caret = currentCaret?.position else { return }
-        performMutation(successMessage: nil) { session in
+        performMutation(successMessage: nil, refreshPolicy: .editing) { session in
             var payload = selectionPayload(for: caret)
             payload["text"] = text
             _ = try session.perform(operation: "insert_text", payload: payload)
@@ -306,7 +346,7 @@ final class DocumentController: ObservableObject {
 
         do {
             if caret.charOffset > 0 {
-                performMutation(successMessage: nil) { session in
+                performMutation(successMessage: nil, refreshPolicy: .editing) { session in
                     var payload = self.selectionPayload(for: caret)
                     payload["charOffset"] = caret.charOffset - 1
                     payload["count"] = 1
@@ -334,7 +374,7 @@ final class DocumentController: ObservableObject {
                 )
             )
 
-            performMutation(successMessage: nil) { session in
+            performMutation(successMessage: nil, refreshPolicy: .editing) { session in
                 _ = try session.perform(
                     operation: "merge_paragraph",
                     payload: self.selectionPayload(for: caret)
@@ -351,13 +391,63 @@ final class DocumentController: ObservableObject {
         }
     }
 
+    func deleteForward() {
+        if hasSelection {
+            deleteSelection()
+            return
+        }
+
+        guard let caret = currentCaret?.position, let session else { return }
+
+        do {
+            let length: RHWPLengthResult = try session.decodeResult(
+                RHWPLengthResult.self,
+                operation: "get_paragraph_length",
+                payload: selectionPayload(for: caret)
+            )
+
+            if caret.charOffset < length.length {
+                performMutation(successMessage: nil, refreshPolicy: .editing) { session in
+                    var payload = self.selectionPayload(for: caret)
+                    payload["count"] = 1
+                    _ = try session.perform(operation: "delete_text", payload: payload)
+                    return caret
+                }
+                return
+            }
+
+            let count: RHWPCountResult = try session.decodeResult(
+                RHWPCountResult.self,
+                operation: "get_paragraph_count",
+                payload: selectionContainerPayload(for: caret)
+            )
+
+            guard caret.paragraphIndex + 1 < count.count else { return }
+
+            performMutation(successMessage: nil, refreshPolicy: .editing) { session in
+                _ = try session.perform(
+                    operation: "merge_paragraph",
+                    payload: self.selectionPayload(
+                        sectionIndex: caret.sectionIndex,
+                        paragraphIndex: caret.paragraphIndex + 1,
+                        charOffset: 0,
+                        cellContext: updatedCellContext(caret.cellContext, cellParaIndex: caret.paragraphIndex + 1)
+                    )
+                )
+                return caret
+            }
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
     func insertParagraphBreak() {
         if hasSelection {
             replaceSelection(with: "")
         }
 
         guard let caret = currentCaret?.position else { return }
-        performMutation(successMessage: nil) { session in
+        performMutation(successMessage: nil, refreshPolicy: .editing) { session in
             _ = try session.perform(
                 operation: "split_paragraph",
                 payload: self.selectionPayload(for: caret)
@@ -480,6 +570,34 @@ final class DocumentController: ObservableObject {
         }
     }
 
+    func moveToParagraphBoundary(toEnd: Bool, extendSelection: Bool = false) {
+        guard let caret = currentCaret?.position, let session else { return }
+
+        do {
+            let targetOffset: Int
+            if toEnd {
+                let length: RHWPLengthResult = try session.decodeResult(
+                    RHWPLengthResult.self,
+                    operation: "get_paragraph_length",
+                    payload: selectionPayload(for: caret)
+                )
+                targetOffset = length.length
+            } else {
+                targetOffset = 0
+            }
+
+            let target = RHWPCaretPosition(
+                sectionIndex: caret.sectionIndex,
+                paragraphIndex: caret.paragraphIndex,
+                charOffset: targetOffset,
+                cellContext: caret.cellContext
+            )
+            try moveCaret(to: target, selectingFrom: extendSelection ? (selection?.anchor ?? caret) : nil)
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
     @discardableResult
     func copySelection() -> Bool {
         guard let session, let bounds = normalizedSelection() else {
@@ -566,7 +684,7 @@ final class DocumentController: ObservableObject {
                 payload: [
                     "query": self.searchQuery,
                     "newText": self.replaceQuery,
-                    "caseSensitive": false,
+                    "caseSensitive": self.searchCaseSensitive,
                 ]
             )
             return self.currentCaret?.position
@@ -595,6 +713,130 @@ final class DocumentController: ObservableObject {
         applyParaFormat(["alignment": alignment])
     }
 
+    func increaseFontSize() {
+        adjustFontSize(by: 1)
+    }
+
+    func decreaseFontSize() {
+        adjustFontSize(by: -1)
+    }
+
+    func setFontSize(_ size: Double) {
+        applyCharFormat(["fontSize": max(1, size) * 100])
+    }
+
+    func setFontFamily(_ family: String) {
+        guard let session else { return }
+
+        do {
+            let result: RHWPIdentifierResult = try session.decodeResult(
+                RHWPIdentifierResult.self,
+                operation: "find_or_create_font_id",
+                payload: ["name": family]
+            )
+            applyCharFormat([
+                "fontId": result.id,
+                "fontIds": Array(repeating: result.id, count: 7),
+            ])
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    func increaseLineSpacing() {
+        adjustLineSpacing(by: 5)
+    }
+
+    func decreaseLineSpacing() {
+        adjustLineSpacing(by: -5)
+    }
+
+    func setLineSpacing(_ spacing: Double) {
+        applyParaFormat([
+            "lineSpacing": max(50, spacing),
+            "lineSpacingType": "Percent",
+        ])
+    }
+
+    func toggleStrikethrough() {
+        guard let props = charProperties else { return }
+        applyCharFormat(["strikethrough": !props.strikethrough])
+    }
+
+    func setTextColor(_ hex: String) {
+        applyCharFormat(["textColor": hex])
+    }
+
+    func setHighlightColor(_ hex: String) {
+        applyCharFormat(["shadeColor": hex])
+    }
+
+    func clearHighlightColor() {
+        applyCharFormat(["shadeColor": "#ffffff"])
+    }
+
+    func applyCharacterProperties(_ props: [String: Any]) {
+        applyCharFormat(props)
+    }
+
+    func applyParagraphProperties(_ props: [String: Any]) {
+        applyParaFormat(props)
+    }
+
+    func applyBulletList(bulletCharacter: String = "•") {
+        guard let session else { return }
+
+        do {
+            let result: RHWPIdentifierResult = try session.decodeResult(
+                RHWPIdentifierResult.self,
+                operation: "ensure_default_bullet",
+                payload: ["char": bulletCharacter]
+            )
+            applyParaFormat([
+                "headType": "Bullet",
+                "numberingId": result.id,
+            ])
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    func applyNumberingList() {
+        guard let session else { return }
+
+        do {
+            let result: RHWPIdentifierResult = try session.decodeResult(
+                RHWPIdentifierResult.self,
+                operation: "ensure_default_numbering",
+                payload: [:]
+            )
+            applyParaFormat([
+                "headType": "Number",
+                "numberingId": result.id,
+            ])
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    func clearParagraphList() {
+        applyParaFormat([
+            "headType": "None",
+            "numberingId": 0,
+            "paraLevel": 0,
+        ])
+    }
+
+    func increaseParagraphLevel() {
+        let next = min((paraProperties?.paraLevel ?? 0) + 1, 6)
+        applyParaFormat(["paraLevel": next])
+    }
+
+    func decreaseParagraphLevel() {
+        let next = max((paraProperties?.paraLevel ?? 0) - 1, 0)
+        applyParaFormat(["paraLevel": next])
+    }
+
     func createTable(rows: Int, columns: Int) {
         guard let caret = currentCaret?.position else { return }
         guard caret.cellContext == nil else {
@@ -607,6 +849,267 @@ final class DocumentController: ObservableObject {
             payload["rows"] = rows
             payload["cols"] = columns
             _ = try session.perform(operation: "create_table", payload: payload)
+            return caret
+        }
+    }
+
+    func addBookmark(named name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            statusMessage = "책갈피 이름을 입력하세요."
+            return
+        }
+        guard let caret = currentCaret?.position else { return }
+
+        performMutation(successMessage: "\"\(trimmed)\" 책갈피를 추가했습니다.") { session in
+            let result: RHWPOperationStatus = try session.decodeResult(
+                RHWPOperationStatus.self,
+                operation: "add_bookmark",
+                payload: [
+                    "sec": caret.sectionIndex,
+                    "para": caret.paragraphIndex,
+                    "charOffset": caret.charOffset,
+                    "name": trimmed,
+                ]
+            )
+            guard result.ok else {
+                throw NativeBridgeError.nativeFailure(result.error ?? "책갈피를 추가하지 못했습니다.")
+            }
+            return caret
+        }
+    }
+
+    func renameBookmark(_ bookmark: RHWPBookmark, to newName: String) {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            statusMessage = "책갈피 이름을 입력하세요."
+            return
+        }
+
+        performMutation(successMessage: "\"\(trimmed)\" 이름으로 책갈피를 바꿨습니다.") { session in
+            let result: RHWPOperationStatus = try session.decodeResult(
+                RHWPOperationStatus.self,
+                operation: "rename_bookmark",
+                payload: [
+                    "sec": bookmark.sec,
+                    "para": bookmark.para,
+                    "controlIndex": bookmark.ctrlIdx,
+                    "name": trimmed,
+                ]
+            )
+            guard result.ok else {
+                throw NativeBridgeError.nativeFailure(result.error ?? "책갈피 이름을 바꾸지 못했습니다.")
+            }
+            return self.currentCaret?.position
+        }
+    }
+
+    func deleteBookmark(_ bookmark: RHWPBookmark) {
+        performMutation(successMessage: "\"\(bookmark.name)\" 책갈피를 삭제했습니다.") { session in
+            let result: RHWPOperationStatus = try session.decodeResult(
+                RHWPOperationStatus.self,
+                operation: "delete_bookmark",
+                payload: [
+                    "sec": bookmark.sec,
+                    "para": bookmark.para,
+                    "controlIndex": bookmark.ctrlIdx,
+                ]
+            )
+            guard result.ok else {
+                throw NativeBridgeError.nativeFailure(result.error ?? "책갈피를 삭제하지 못했습니다.")
+            }
+            return self.currentCaret?.position
+        }
+    }
+
+    func jumpToBookmark(_ bookmark: RHWPBookmark) {
+        do {
+            try moveCaret(
+                to: RHWPCaretPosition(
+                    sectionIndex: bookmark.sec,
+                    paragraphIndex: bookmark.para,
+                    charOffset: bookmark.charPos
+                )
+            )
+            statusMessage = "\"\(bookmark.name)\" 책갈피로 이동했습니다."
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    func updateFieldValue(name: String, value: String) {
+        guard let session else { return }
+
+        performMutation(successMessage: "\"\(name)\" 필드 값을 적용했습니다.") { _ in
+            let result: RHWPOperationStatus = try session.decodeResult(
+                RHWPOperationStatus.self,
+                operation: "set_field_value_by_name",
+                payload: [
+                    "name": name,
+                    "value": value,
+                ]
+            )
+            guard result.ok else {
+                throw NativeBridgeError.nativeFailure(result.error ?? "필드 값을 적용하지 못했습니다.")
+            }
+            return self.currentCaret?.position
+        }
+    }
+
+    func replaceTextInInputRange(_ range: NSRange, with text: String, coalescingComposition: Bool = false) {
+        guard
+            let caret = currentCaret?.position,
+            range.location != NSNotFound,
+            range.location >= 0,
+            range.length >= 0
+        else {
+            insertText(text)
+            return
+        }
+
+        if hasSelection, currentInputSelectionRange() == range {
+            replaceSelection(with: text)
+            return
+        }
+
+        let mutationBody: (EditorSession) throws -> RHWPCaretPosition? = { session in
+            let baseOffset = max(range.location, 0)
+            if range.length > 0 {
+                var deletePayload = self.selectionPayload(for: caret)
+                deletePayload["charOffset"] = baseOffset
+                deletePayload["count"] = range.length
+                _ = try session.perform(operation: "delete_text", payload: deletePayload)
+            }
+
+            guard !text.isEmpty else {
+                return RHWPCaretPosition(
+                    sectionIndex: caret.sectionIndex,
+                    paragraphIndex: caret.paragraphIndex,
+                    charOffset: baseOffset,
+                    cellContext: caret.cellContext
+                )
+            }
+
+            var insertPayload = self.selectionPayload(
+                sectionIndex: caret.sectionIndex,
+                paragraphIndex: caret.paragraphIndex,
+                charOffset: baseOffset,
+                cellContext: caret.cellContext
+            )
+            insertPayload["text"] = text
+            _ = try session.perform(operation: "insert_text", payload: insertPayload)
+
+            return RHWPCaretPosition(
+                sectionIndex: caret.sectionIndex,
+                paragraphIndex: caret.paragraphIndex,
+                charOffset: baseOffset + text.count,
+                cellContext: caret.cellContext
+            )
+        }
+
+        if coalescingComposition {
+            performCompositionMutation(body: mutationBody)
+        } else {
+            performMutation(successMessage: nil, refreshPolicy: .editing, body: mutationBody)
+        }
+    }
+
+    func finishTextComposition() {
+        compositionUndoSnapshot = nil
+    }
+
+    func applyHeaderFooterTemplate(isHeader: Bool, templateID: Int) {
+        guard let session else { return }
+
+        let sectionIndex: Int
+        if pageInfos.indices.contains(selectedPageIndex) {
+            sectionIndex = pageInfos[selectedPageIndex].sectionIndex
+        } else {
+            sectionIndex = currentCaret?.position.sectionIndex ?? 0
+        }
+
+        let title = isHeader ? "머리말" : "꼬리말"
+        let successMessage = templateID == 0
+            ? "\(title) 템플릿을 비웠습니다."
+            : "\(title) 템플릿을 적용했습니다."
+
+        performMutation(successMessage: successMessage) { _ in
+            let result: RHWPOperationStatus = try session.decodeResult(
+                RHWPOperationStatus.self,
+                operation: "apply_header_footer_template",
+                payload: [
+                    "sec": sectionIndex,
+                    "isHeader": isHeader,
+                    "applyTo": 0,
+                    "templateId": templateID,
+                ]
+            )
+            guard result.ok else {
+                throw NativeBridgeError.nativeFailure(result.error ?? "\(title) 템플릿을 적용하지 못했습니다.")
+            }
+            return self.currentCaret?.position
+        }
+    }
+
+    func currentInputSelectionRange() -> NSRange {
+        if let bounds = normalizedSelection(),
+           sameSelectionContainer(bounds.start, bounds.end),
+           bounds.start.paragraphIndex == bounds.end.paragraphIndex {
+            return NSRange(
+                location: bounds.start.charOffset,
+                length: max(bounds.end.charOffset - bounds.start.charOffset, 0)
+            )
+        }
+
+        guard let caret = currentCaret?.position else {
+            return NSRange(location: NSNotFound, length: 0)
+        }
+        return NSRange(location: caret.charOffset, length: 0)
+    }
+
+    func attributedSubstringForInput(range: NSRange) -> NSAttributedString? {
+        guard
+            range.location != NSNotFound,
+            range.location >= 0,
+            range.length >= 0,
+            let session,
+            let caret = currentCaret?.position
+        else {
+            return nil
+        }
+
+        do {
+            var payload: [String: Any] = [
+                "sec": caret.sectionIndex,
+                "para": caret.paragraphIndex,
+                "charOffset": range.location,
+                "count": range.length,
+            ]
+            if let cellContext = cellContextPayload(caret.cellContext) {
+                payload["para"] = caret.cellContext?.cellParaIndex ?? caret.paragraphIndex
+                payload["cellContext"] = cellContext
+            }
+            let text = try session.perform(operation: "get_text_range", payload: payload)
+            return NSAttributedString(string: text)
+        } catch {
+            return nil
+        }
+    }
+
+    func insertPageBreak() {
+        guard let caret = currentCaret?.position else { return }
+
+        performMutation(successMessage: "쪽 나누기를 삽입했습니다.") { session in
+            _ = try session.perform(operation: "insert_page_break", payload: self.selectionPayload(for: caret))
+            return caret
+        }
+    }
+
+    func insertColumnBreak() {
+        guard let caret = currentCaret?.position else { return }
+
+        performMutation(successMessage: "단 나누기를 삽입했습니다.") { session in
+            _ = try session.perform(operation: "insert_column_break", payload: self.selectionPayload(for: caret))
             return caret
         }
     }
@@ -681,6 +1184,92 @@ final class DocumentController: ObservableObject {
         }
     }
 
+    func splitCurrentTableCell() {
+        guard let target = currentTableTarget() else { return }
+
+        performMutation(successMessage: "현재 셀 병합을 해제했습니다.") { session in
+            _ = try session.perform(
+                operation: "split_table_cell",
+                payload: [
+                    "sec": target.sectionIndex,
+                    "parentPara": target.parentParaIndex,
+                    "controlIndex": target.controlIndex,
+                    "row": target.row,
+                    "col": target.column,
+                ]
+            )
+            return self.currentCaret?.position
+        }
+    }
+
+    func mergeCurrentTableCells(toRow endRow: Int, toColumn endColumn: Int) {
+        guard let target = currentTableTarget(), let dimensions = currentTableDimensions else { return }
+
+        let safeEndRow = min(max(endRow, target.row), max(dimensions.rowCount - 1, target.row))
+        let safeEndColumn = min(max(endColumn, target.column), max(dimensions.colCount - 1, target.column))
+
+        performMutation(successMessage: "셀을 합쳤습니다.") { session in
+            _ = try session.perform(
+                operation: "merge_table_cells",
+                payload: [
+                    "sec": target.sectionIndex,
+                    "parentPara": target.parentParaIndex,
+                    "controlIndex": target.controlIndex,
+                    "startRow": target.row,
+                    "startCol": target.column,
+                    "endRow": safeEndRow,
+                    "endCol": safeEndColumn,
+                ]
+            )
+            return self.currentCaret?.position
+        }
+    }
+
+    func updateCurrentCellProperties(_ props: [String: Any]) {
+        guard
+            let session,
+            let caret = currentCaret?.position,
+            let cell = caret.cellContext,
+            !cell.isTextBox
+        else { return }
+
+        performMutation(successMessage: "셀 속성을 적용했습니다.") { _ in
+            _ = try session.perform(
+                operation: "set_cell_properties",
+                payload: [
+                    "sec": caret.sectionIndex,
+                    "parentPara": cell.parentParaIndex,
+                    "controlIndex": cell.controlIndex,
+                    "cellIndex": cell.cellIndex,
+                    "props": props,
+                ]
+            )
+            return caret
+        }
+    }
+
+    func updateCurrentTableProperties(_ props: [String: Any]) {
+        guard
+            let session,
+            let caret = currentCaret?.position,
+            let cell = caret.cellContext,
+            !cell.isTextBox
+        else { return }
+
+        performMutation(successMessage: "표 속성을 적용했습니다.") { _ in
+            _ = try session.perform(
+                operation: "set_table_properties",
+                payload: [
+                    "sec": caret.sectionIndex,
+                    "parentPara": cell.parentParaIndex,
+                    "controlIndex": cell.controlIndex,
+                    "props": props,
+                ]
+            )
+            return caret
+        }
+    }
+
     func undo() {
         guard let session, let snapshot = undoSnapshots.popLast() else { return }
 
@@ -723,7 +1312,7 @@ final class DocumentController: ObservableObject {
         guard let bounds = normalizedSelection() else { return }
         clearSelection()
 
-        performMutation(successMessage: status) { session in
+        performMutation(successMessage: status, refreshPolicy: .editing) { session in
             let result: RHWPMutationCursorResult = try session.decodeResult(
                 RHWPMutationCursorResult.self,
                 operation: "delete_range",
@@ -743,7 +1332,7 @@ final class DocumentController: ObservableObject {
 
         clearSelection()
 
-        performMutation(successMessage: nil) { session in
+        performMutation(successMessage: nil, refreshPolicy: .editing) { session in
             let deleteResult: RHWPMutationCursorResult = try session.decodeResult(
                 RHWPMutationCursorResult.self,
                 operation: "delete_range",
@@ -772,7 +1361,7 @@ final class DocumentController: ObservableObject {
         let bounds = normalizedSelection()
         clearSelection()
 
-        performMutation(successMessage: "문서를 붙여넣었습니다.") { session in
+        performMutation(successMessage: "문서를 붙여넣었습니다.", refreshPolicy: .editing) { session in
             let insertionPoint: RHWPCaretPosition
             if let bounds {
                 let deleteResult: RHWPMutationCursorResult = try session.decodeResult(
@@ -812,7 +1401,7 @@ final class DocumentController: ObservableObject {
                     "fromPara": origin.paragraphIndex,
                     "fromChar": origin.charOffset,
                     "forward": forward,
-                    "caseSensitive": false,
+                    "caseSensitive": searchCaseSensitive,
                 ]
             )
 
@@ -872,8 +1461,21 @@ final class DocumentController: ObservableObject {
         }
     }
 
+    private func adjustFontSize(by delta: Double) {
+        guard let size = charProperties?.fontSize else { return }
+        let nextSize = max(100, size + delta * 100)
+        applyCharFormat(["fontSize": nextSize])
+    }
+
+    private func adjustLineSpacing(by delta: Double) {
+        let current = paraProperties?.lineSpacing ?? 160
+        let nextSpacing = max(50, current + delta)
+        applyParaFormat(["lineSpacing": nextSpacing])
+    }
+
     private func performMutation(
         successMessage: String?,
+        refreshPolicy: MutationRefreshPolicy = .full,
         body: (EditorSession) throws -> RHWPCaretPosition?
     ) {
         guard let session else { return }
@@ -894,7 +1496,7 @@ final class DocumentController: ObservableObject {
             }
 
             isDirty = true
-            try reloadDocumentState()
+            try refreshAfterMutation(policy: refreshPolicy)
 
             if let successMessage {
                 statusMessage = successMessage
@@ -902,6 +1504,77 @@ final class DocumentController: ObservableObject {
         } catch {
             statusMessage = error.localizedDescription
         }
+    }
+
+    private func performCompositionMutation(
+        body: (EditorSession) throws -> RHWPCaretPosition?
+    ) {
+        guard let session else { return }
+
+        do {
+            if compositionUndoSnapshot == nil {
+                let snapshot = try session.saveSnapshot()
+                undoSnapshots.append(snapshot)
+                compositionUndoSnapshot = snapshot
+                redoSnapshots.forEach { session.discardSnapshot($0) }
+                redoSnapshots.removeAll()
+            }
+
+            let targetPosition = try body(session)
+            if let targetPosition {
+                currentCaret = RHWPCaretState(
+                    position: targetPosition,
+                    rect: currentCaret?.rect ?? RHWPCursorRect(pageIndex: selectedPageIndex, x: 0, y: 0, height: 16),
+                    preferredX: nil
+                )
+            }
+
+            isDirty = true
+            try refreshAfterMutation(policy: .editing)
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    private func refreshAfterMutation(policy: MutationRefreshPolicy) throws {
+        switch policy {
+        case .full:
+            try reloadDocumentState()
+        case .editing:
+            try refreshEditingState()
+            scheduleDeferredRefresh()
+        }
+    }
+
+    private func refreshEditingState() throws {
+        viewportController.invalidateCache()
+
+        if let caret = currentCaret {
+            currentCaret = try refreshedCaret(for: caret.position, preferredX: caret.preferredX)
+        }
+
+        syncDerivedState()
+    }
+
+    private func scheduleDeferredRefresh() {
+        cancelDeferredRefresh()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            do {
+                try self.reloadDocumentState()
+            } catch {
+                self.statusMessage = error.localizedDescription
+            }
+        }
+
+        deferredRefreshWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: workItem)
+    }
+
+    private func cancelDeferredRefresh() {
+        deferredRefreshWorkItem?.cancel()
+        deferredRefreshWorkItem = nil
     }
 
     private func moveCaret(
@@ -988,6 +1661,8 @@ final class DocumentController: ObservableObject {
         guard let session, let cell = currentCaret?.position.cellContext, !cell.isTextBox else {
             currentTableDimensions = nil
             currentCellInfo = nil
+            currentCellProperties = nil
+            currentTableProperties = nil
             return
         }
 
@@ -1010,6 +1685,51 @@ final class DocumentController: ObservableObject {
                 "controlIndex": cell.controlIndex,
                 "cellIndex": cell.cellIndex,
             ]
+        )
+
+        currentCellProperties = try session.decodeResult(
+            RHWPCellProperties.self,
+            operation: "get_cell_properties",
+            payload: [
+                "sec": currentCaret?.position.sectionIndex ?? 0,
+                "parentPara": cell.parentParaIndex,
+                "controlIndex": cell.controlIndex,
+                "cellIndex": cell.cellIndex,
+            ]
+        )
+
+        currentTableProperties = try session.decodeResult(
+            RHWPTableProperties.self,
+            operation: "get_table_properties",
+            payload: [
+                "sec": currentCaret?.position.sectionIndex ?? 0,
+                "parentPara": cell.parentParaIndex,
+                "controlIndex": cell.controlIndex,
+            ]
+        )
+    }
+
+    private func refreshBookmarks() throws {
+        guard let session else {
+            bookmarks = []
+            return
+        }
+
+        bookmarks = try session.decodeResult(
+            [RHWPBookmark].self,
+            operation: "get_bookmarks"
+        )
+    }
+
+    private func refreshFields() throws {
+        guard let session else {
+            fields = []
+            return
+        }
+
+        fields = try session.decodeResult(
+            [RHWPFieldInfo].self,
+            operation: "get_field_list"
         )
     }
 
@@ -1258,9 +1978,12 @@ final class DocumentController: ObservableObject {
         }
         undoSnapshots.removeAll()
         redoSnapshots.removeAll()
+        compositionUndoSnapshot = nil
     }
 
     private func resetLoadedState() {
+        cancelDeferredRefresh()
+        compositionUndoSnapshot = nil
         isDirty = false
         lastInternalClipboardText = nil
         clearHistory()
@@ -1269,6 +1992,10 @@ final class DocumentController: ObservableObject {
         searchStatus = ""
         currentTableDimensions = nil
         currentCellInfo = nil
+        currentCellProperties = nil
+        currentTableProperties = nil
+        bookmarks = []
+        fields = []
         charProperties = nil
         paraProperties = nil
         selectedPageIndex = 0
