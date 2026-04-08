@@ -249,8 +249,7 @@ impl DocumentCore {
         ))
     }
 
-    /// 구역의 용지 설정(PageDef)을 변경하고 재페이지네이션 (네이티브 에러 타입)
-    pub fn set_page_def_native(&mut self, section_idx: usize, json: &str) -> Result<String, HwpError> {
+    fn apply_page_def_json(&mut self, section_idx: usize, json: &str) -> Result<(), HwpError> {
         use crate::model::page::BindingMethod;
 
         let section = self.document.sections.get_mut(section_idx)
@@ -300,14 +299,23 @@ impl DocumentCore {
         // FIX 3: raw_stream 무효화 → 직렬화 시 모델에서 재구성
         section.raw_stream = None;
 
-        // 재조판 + 재페이지네이션
-        self.composed = self.document.sections.iter()
-            .map(|s| compose_section(s))
-            .collect();
-        self.mark_all_sections_dirty();
-        self.paginate();
+        Ok(())
+    }
 
-        let page_count = self.page_count();
+    /// 구역의 용지 설정(PageDef)을 변경하고 재페이지네이션 (네이티브 에러 타입)
+    pub fn set_page_def_native(&mut self, section_idx: usize, json: &str) -> Result<String, HwpError> {
+        self.apply_page_def_json(section_idx, json)?;
+        let page_count = self.recompose_and_paginate();
+        Ok(format!("{{\"ok\":true,\"pageCount\":{}}}", page_count))
+    }
+
+    /// 모든 구역의 용지 설정(PageDef)을 일괄 변경하고 재페이지네이션한다.
+    pub fn set_page_def_all_native(&mut self, json: &str) -> Result<String, HwpError> {
+        let count = self.document.sections.len();
+        for idx in 0..count {
+            self.apply_page_def_json(idx, json)?;
+        }
+        let page_count = self.recompose_and_paginate();
         Ok(format!("{{\"ok\":true,\"pageCount\":{}}}", page_count))
     }
 

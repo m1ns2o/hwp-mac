@@ -1046,10 +1046,17 @@ impl DocumentCore {
         // ── 커서 위치를 pre-built tree에서 직접 찾는 헬퍼 ──
         struct CursorHit { page: u32, x: f64, y: f64, h: f64 }
 
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum CursorBoundaryBias {
+            Before,
+            After,
+        }
+
         fn find_body_cursor(
             node: &RenderNode, sec: usize, para: usize,
-            offset: usize, page: u32,
+            offset: usize, page: u32, bias: CursorBoundaryBias,
         ) -> Option<CursorHit> {
+            let mut candidate: Option<CursorHit> = None;
             if let RenderNodeType::TextRun(ref tr) = node.node_type {
                 if tr.section_index == Some(sec)
                     && tr.para_index == Some(para)
@@ -1063,24 +1070,32 @@ impl DocumentCore {
                         let xr = if lo < pos.len() { pos[lo] }
                                  else if !pos.is_empty() { *pos.last().unwrap() }
                                  else { 0.0 };
-                        return Some(CursorHit {
+                        let hit = CursorHit {
                             page, x: node.bbox.x + xr, y: node.bbox.y, h: node.bbox.height,
-                        });
+                        };
+                        if bias == CursorBoundaryBias::Before {
+                            return Some(hit);
+                        }
+                        candidate = Some(hit);
                     }
                 }
             }
             for child in &node.children {
-                if let Some(hit) = find_body_cursor(child, sec, para, offset, page) {
-                    return Some(hit);
+                if let Some(hit) = find_body_cursor(child, sec, para, offset, page, bias) {
+                    if bias == CursorBoundaryBias::Before {
+                        return Some(hit);
+                    }
+                    candidate = Some(hit);
                 }
             }
-            None
+            candidate
         }
 
         fn find_cell_cursor(
             node: &RenderNode, ppi: usize, ci: usize, cei: usize,
-            cpi: usize, offset: usize, page: u32,
+            cpi: usize, offset: usize, page: u32, bias: CursorBoundaryBias,
         ) -> Option<CursorHit> {
+            let mut candidate: Option<CursorHit> = None;
             if let RenderNodeType::TextRun(ref tr) = node.node_type {
                 let matches_cell = tr.cell_context.as_ref().map_or(false, |ctx| {
                     ctx.parent_para_index == ppi
@@ -1097,18 +1112,25 @@ impl DocumentCore {
                         let xr = if lo < pos.len() { pos[lo] }
                                  else if !pos.is_empty() { *pos.last().unwrap() }
                                  else { 0.0 };
-                        return Some(CursorHit {
+                        let hit = CursorHit {
                             page, x: node.bbox.x + xr, y: node.bbox.y, h: node.bbox.height,
-                        });
+                        };
+                        if bias == CursorBoundaryBias::Before {
+                            return Some(hit);
+                        }
+                        candidate = Some(hit);
                     }
                 }
             }
             for child in &node.children {
-                if let Some(hit) = find_cell_cursor(child, ppi, ci, cei, cpi, offset, page) {
-                    return Some(hit);
+                if let Some(hit) = find_cell_cursor(child, ppi, ci, cei, cpi, offset, page, bias) {
+                    if bias == CursorBoundaryBias::Before {
+                        return Some(hit);
+                    }
+                    candidate = Some(hit);
                 }
             }
-            None
+            candidate
         }
 
         // ── 페이지별 렌더 트리 캐시 (최대 2페이지) ──
@@ -1146,13 +1168,13 @@ impl DocumentCore {
 
         // 페이지에서 커서 위치 찾기 (캐시된 트리 사용)
         macro_rules! find_cursor {
-            ($para_idx:expr, $offset:expr) => {{
+            ($para_idx:expr, $offset:expr, $bias:expr) => {{
                 let mut result: Option<CursorHit> = None;
                 for (pn, tree) in tree_cache.iter() {
                     let hit = if let Some((ppi, ci, cei)) = cell_ctx {
-                        find_cell_cursor(&tree.root, ppi, ci, cei, $para_idx, $offset, *pn)
+                        find_cell_cursor(&tree.root, ppi, ci, cei, $para_idx, $offset, *pn, $bias)
                     } else {
-                        find_body_cursor(&tree.root, section_idx, $para_idx, $offset, *pn)
+                        find_body_cursor(&tree.root, section_idx, $para_idx, $offset, *pn, $bias)
                     };
                     if hit.is_some() { result = hit; break; }
                 }
@@ -1221,10 +1243,14 @@ impl DocumentCore {
                 let range_end = sel_end.min(line_char_end);
                 if range_start >= range_end { continue; }
 
-                let left_hit = find_cursor!(para_idx, range_start);
+                let left_hit = find_cursor!(para_idx, range_start, CursorBoundaryBias::After);
                 // range_end가 줄바꿈 등 비렌더링 문자 위치이면 한 칸 앞으로 재시도
-                let right_hit = find_cursor!(para_idx, range_end)
-                    .or_else(|| if range_end > range_start { find_cursor!(para_idx, range_end - 1) } else { None });
+                let right_hit = find_cursor!(para_idx, range_end, CursorBoundaryBias::Before)
+                    .or_else(|| if range_end > range_start {
+                        find_cursor!(para_idx, range_end - 1, CursorBoundaryBias::Before)
+                    } else {
+                        None
+                    });
 
                 if let (Some(lh), Some(rh)) = (left_hit, right_hit) {
                     let partial_start = range_start > line_char_start;

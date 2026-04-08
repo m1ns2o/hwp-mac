@@ -239,8 +239,8 @@ private extension EditorToolbar {
                     ribbonSeparator
 
                     ribbonGroup {
-                        ribbonToolbarButton("각주", systemImage: "text.insert", isEnabled: false) {
-                            showUnsupportedFeature("각주")
+                        ribbonToolbarButton("각주", systemImage: "text.insert", isEnabled: documentController.hasSession) {
+                            documentController.insertFootnote()
                         }
                         ribbonToolbarButton("미주", systemImage: "note.text", isEnabled: false) {
                             showUnsupportedFeature("미주")
@@ -615,8 +615,8 @@ private extension EditorToolbar {
             showUnsupportedFeature("PDF로 다운로드")
         }
         Divider()
-        menuAction("편집 용지...", systemImage: "doc.text.magnifyingglass", shortcut: "F7", enabled: false) {
-            showUnsupportedFeature("편집 용지")
+        menuAction("편집 용지...", systemImage: "doc.text.magnifyingglass", shortcut: "F7", enabled: documentController.hasSession) {
+            openDialog(.pageSetup)
         }
         menuAction("인쇄", systemImage: "printer", shortcut: "Cmd+P", enabled: false) {
             showUnsupportedFeature("인쇄")
@@ -791,7 +791,9 @@ private extension EditorToolbar {
         }
         Divider()
         Menu {
-            menuAction("각주", systemImage: "text.insert", enabled: false) { showUnsupportedFeature("각주") }
+            menuAction("각주", systemImage: "text.insert", enabled: documentController.hasSession) {
+                documentController.insertFootnote()
+            }
             menuAction("미주", systemImage: "note.text", enabled: false) { showUnsupportedFeature("미주") }
         } label: {
             menuRowLabel("주석")
@@ -852,8 +854,8 @@ private extension EditorToolbar {
 
     @ViewBuilder
     var pageMenuContent: some View {
-        menuAction("편집 용지...", systemImage: "doc.text.magnifyingglass", shortcut: "F7", enabled: false) {
-            showUnsupportedFeature("편집 용지")
+        menuAction("편집 용지...", systemImage: "doc.text.magnifyingglass", shortcut: "F7", enabled: documentController.hasSession) {
+            openDialog(.pageSetup)
         }
         Divider()
         Menu {
@@ -1082,6 +1084,10 @@ private extension EditorToolbar {
         }
         menuAction("오른쪽 쪽 번호", enabled: documentController.hasSession) {
             documentController.applyHeaderFooterTemplate(isHeader: isHeader, templateID: 3)
+        }
+        Divider()
+        menuAction("\(title) 설정...", systemImage: "slider.horizontal.3", enabled: documentController.hasSession) {
+            openDialog(isHeader ? .headerSetup : .footerSetup)
         }
         Divider()
         Text("\(title) 템플릿은 현재 구역 기준으로 적용됩니다.")

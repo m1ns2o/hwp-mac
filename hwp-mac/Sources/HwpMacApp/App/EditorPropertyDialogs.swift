@@ -644,6 +644,382 @@ struct FieldDialogView: View {
     }
 }
 
+@MainActor
+struct PageSetupDialogView: View {
+    @ObservedObject var documentController: DocumentController
+    @Binding var isPresented: Bool
+
+    @State private var widthMM = ""
+    @State private var heightMM = ""
+    @State private var marginLeftMM = ""
+    @State private var marginRightMM = ""
+    @State private var marginTopMM = ""
+    @State private var marginBottomMM = ""
+    @State private var marginHeaderMM = ""
+    @State private var marginFooterMM = ""
+    @State private var marginGutterMM = ""
+    @State private var pageNumber = ""
+    @State private var landscape = false
+    @State private var binding = 0
+    @State private var hideHeader = false
+    @State private var hideFooter = false
+    @State private var hideMasterPage = false
+    @State private var hideBorder = false
+    @State private var hideFill = false
+    @State private var hideEmptyLine = false
+    @State private var applyToAllSections = false
+    @State private var loadError = ""
+    @State private var loadedPageDefinition: RHWPPageDefinition?
+    @State private var loadedSectionDefinition: RHWPSectionDefinition?
+
+    var body: some View {
+        EditorDialogBackdrop(isPresented: $isPresented) {
+            EditorDialogContainer(title: "편집 용지", width: 760, isPresented: $isPresented) {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("현재 커서가 속한 구역의 용지 설정을 불러옵니다. 필요하면 모든 구역에 같은 설정을 적용할 수 있습니다.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if !loadError.isEmpty {
+                        Text(loadError)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.red)
+                    }
+
+                    HStack(alignment: .top, spacing: 20) {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text("용지")
+                                .font(.system(size: 13, weight: .semibold))
+
+                            dialogField("크기") {
+                                EditorLabeledValueField(title: "너비", text: $widthMM)
+                                EditorLabeledValueField(title: "높이", text: $heightMM)
+                            }
+
+                            dialogField("방향") {
+                                Picker("", selection: $landscape) {
+                                    Text("세로").tag(false)
+                                    Text("가로").tag(true)
+                                }
+                                .pickerStyle(.segmented)
+                            }
+
+                            dialogField("제본") {
+                                Picker("", selection: $binding) {
+                                    Text("단면").tag(0)
+                                    Text("양면").tag(1)
+                                    Text("위로 넘김").tag(2)
+                                }
+                                .pickerStyle(.segmented)
+                            }
+
+                            dialogField("쪽 번호") {
+                                TextField("", text: $pageNumber)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 96)
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text("여백")
+                                .font(.system(size: 13, weight: .semibold))
+
+                            dialogField("본문") {
+                                EditorLabeledValueField(title: "왼쪽", text: $marginLeftMM)
+                                EditorLabeledValueField(title: "오른쪽", text: $marginRightMM)
+                                EditorLabeledValueField(title: "위쪽", text: $marginTopMM)
+                                EditorLabeledValueField(title: "아래쪽", text: $marginBottomMM)
+                            }
+
+                            dialogField("머리말/꼬리말") {
+                                EditorLabeledValueField(title: "머리말", text: $marginHeaderMM)
+                                EditorLabeledValueField(title: "꼬리말", text: $marginFooterMM)
+                                EditorLabeledValueField(title: "제본", text: $marginGutterMM)
+                            }
+
+                            dialogField("표시 옵션") {
+                                Toggle("머리말 숨김", isOn: $hideHeader)
+                                Toggle("꼬리말 숨김", isOn: $hideFooter)
+                                Toggle("바탕쪽 숨김", isOn: $hideMasterPage)
+                                Toggle("쪽 테두리 숨김", isOn: $hideBorder)
+                                Toggle("쪽 채우기 숨김", isOn: $hideFill)
+                                Toggle("빈 줄 숨김", isOn: $hideEmptyLine)
+                            }
+                        }
+                    }
+
+                    Toggle("모든 구역에 같은 설정 적용", isOn: $applyToAllSections)
+                        .font(.system(size: 12, weight: .medium))
+                }
+            } actions: {
+                Button("취소") { isPresented = false }
+                Button("설정") {
+                    guard
+                        let loadedPageDefinition,
+                        let loadedSectionDefinition
+                    else {
+                        return
+                    }
+
+                    let pageDefinition = RHWPPageDefinition(
+                        width: parseMillimeters(widthMM, fallback: loadedPageDefinition.width),
+                        height: parseMillimeters(heightMM, fallback: loadedPageDefinition.height),
+                        marginLeft: parseMillimeters(marginLeftMM, fallback: loadedPageDefinition.marginLeft),
+                        marginRight: parseMillimeters(marginRightMM, fallback: loadedPageDefinition.marginRight),
+                        marginTop: parseMillimeters(marginTopMM, fallback: loadedPageDefinition.marginTop),
+                        marginBottom: parseMillimeters(marginBottomMM, fallback: loadedPageDefinition.marginBottom),
+                        marginHeader: parseMillimeters(marginHeaderMM, fallback: loadedPageDefinition.marginHeader),
+                        marginFooter: parseMillimeters(marginFooterMM, fallback: loadedPageDefinition.marginFooter),
+                        marginGutter: parseMillimeters(marginGutterMM, fallback: loadedPageDefinition.marginGutter),
+                        landscape: landscape,
+                        binding: binding
+                    )
+
+                    let sectionDefinition = RHWPSectionDefinition(
+                        pageNum: Int(pageNumber) ?? loadedSectionDefinition.pageNum,
+                        pageNumType: loadedSectionDefinition.pageNumType,
+                        pictureNum: loadedSectionDefinition.pictureNum,
+                        tableNum: loadedSectionDefinition.tableNum,
+                        equationNum: loadedSectionDefinition.equationNum,
+                        columnSpacing: loadedSectionDefinition.columnSpacing,
+                        defaultTabSpacing: loadedSectionDefinition.defaultTabSpacing,
+                        hideHeader: hideHeader,
+                        hideFooter: hideFooter,
+                        hideMasterPage: hideMasterPage,
+                        hideBorder: hideBorder,
+                        hideFill: hideFill,
+                        hideEmptyLine: hideEmptyLine
+                    )
+
+                    documentController.applyPageSetup(
+                        pageDefinition: pageDefinition,
+                        sectionDefinition: sectionDefinition,
+                        applyToAllSections: applyToAllSections
+                    )
+                    isPresented = false
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(loadedPageDefinition == nil || loadedSectionDefinition == nil)
+            }
+        }
+        .onAppear {
+            reload()
+        }
+    }
+
+    private func reload() {
+        do {
+            let state = try documentController.fetchPageSetupState()
+            loadedPageDefinition = state.page
+            loadedSectionDefinition = state.section
+            widthMM = formatMillimeters(state.page.width)
+            heightMM = formatMillimeters(state.page.height)
+            marginLeftMM = formatMillimeters(state.page.marginLeft)
+            marginRightMM = formatMillimeters(state.page.marginRight)
+            marginTopMM = formatMillimeters(state.page.marginTop)
+            marginBottomMM = formatMillimeters(state.page.marginBottom)
+            marginHeaderMM = formatMillimeters(state.page.marginHeader)
+            marginFooterMM = formatMillimeters(state.page.marginFooter)
+            marginGutterMM = formatMillimeters(state.page.marginGutter)
+            pageNumber = String(state.section.pageNum)
+            landscape = state.page.landscape
+            binding = state.page.binding
+            hideHeader = state.section.hideHeader
+            hideFooter = state.section.hideFooter
+            hideMasterPage = state.section.hideMasterPage
+            hideBorder = state.section.hideBorder
+            hideFill = state.section.hideFill
+            hideEmptyLine = state.section.hideEmptyLine
+            loadError = ""
+        } catch {
+            loadError = error.localizedDescription
+        }
+    }
+}
+
+@MainActor
+struct HeaderFooterDialogView: View {
+    @ObservedObject var documentController: DocumentController
+    @Binding var isPresented: Bool
+    let isHeader: Bool
+
+    @State private var selectedApplyTo = 0
+    @State private var info: RHWPHeaderFooterInfo?
+    @State private var items: [RHWPHeaderFooterListItem] = []
+    @State private var currentIndex = -1
+    @State private var loadError = ""
+
+    private var title: String {
+        isHeader ? "머리말 설정" : "꼬리말 설정"
+    }
+
+    var body: some View {
+        EditorDialogBackdrop(isPresented: $isPresented) {
+            EditorDialogContainer(title: title, width: 720, isPresented: $isPresented) {
+                VStack(alignment: .leading, spacing: 16) {
+                    dialogField("적용 범위") {
+                        Picker("", selection: $selectedApplyTo) {
+                            Text("양 쪽").tag(0)
+                            Text("짝수 쪽").tag(1)
+                            Text("홀수 쪽").tag(2)
+                        }
+                        .pickerStyle(.segmented)
+                    }
+
+                    if !loadError.isEmpty {
+                        Text(loadError)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.red)
+                    }
+
+                    HStack(alignment: .top, spacing: 20) {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text("현재 상태")
+                                .font(.system(size: 13, weight: .semibold))
+
+                            GroupBox {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    infoLine("상태", (info?.exists ?? false) ? "존재함" : "없음")
+                                    infoLine("적용", info?.label ?? applyToLabel(selectedApplyTo))
+                                    infoLine("문단 수", info.map { String($0.paraCount ?? 0) } ?? "-")
+
+                                    Divider()
+
+                                    ScrollView {
+                                        Text(previewText)
+                                            .font(.system(size: 12))
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .textSelection(.enabled)
+                                    }
+                                    .frame(height: 120)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(10)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text("빠른 템플릿")
+                                .font(.system(size: 13, weight: .semibold))
+
+                            templateButton("빈 템플릿", templateID: 0)
+                            templateButton("왼쪽 쪽 번호", templateID: 1)
+                            templateButton("가운데 쪽 번호", templateID: 2)
+                            templateButton("오른쪽 쪽 번호", templateID: 3)
+
+                            Button("현재 \(isHeader ? "머리말" : "꼬리말") 삭제", role: .destructive) {
+                                documentController.deleteHeaderFooter(isHeader: isHeader, applyTo: selectedApplyTo)
+                                reload()
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(!(info?.exists ?? false))
+                        }
+                        .frame(width: 180, alignment: .topLeading)
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("문서의 \(isHeader ? "머리말" : "꼬리말") 목록")
+                            .font(.system(size: 13, weight: .semibold))
+
+                        List {
+                            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                                HStack {
+                                    Text("구역 \(item.sectionIdx + 1)")
+                                    Spacer()
+                                    Text(item.label)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .font(.system(size: 12))
+                                .padding(.vertical, 2)
+                                .background(index == currentIndex ? Color.accentColor.opacity(0.08) : .clear)
+                            }
+                        }
+                        .frame(height: 132)
+                    }
+                }
+            } actions: {
+                Button("닫기") {
+                    isPresented = false
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .onAppear {
+            reload()
+        }
+        .onChange(of: selectedApplyTo) { _, _ in
+            reload()
+        }
+    }
+
+    private var previewText: String {
+        guard let info else { return "현재 상태를 불러오는 중입니다." }
+        if info.exists {
+            let text = info.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return text.isEmpty ? "내용은 비어 있지만 \(isHeader ? "머리말" : "꼬리말") 컨트롤은 존재합니다." : text
+        }
+        return "현재 적용 범위에는 \(isHeader ? "머리말" : "꼬리말")이 없습니다."
+    }
+
+    private func reload() {
+        do {
+            let fetchedInfo = try documentController.fetchHeaderFooterInfo(isHeader: isHeader, applyTo: selectedApplyTo)
+            let fetchedList = try documentController.fetchHeaderFooterList(isHeader: isHeader, applyTo: selectedApplyTo)
+            info = fetchedInfo
+            let filteredItems = fetchedList.items.filter { $0.isHeader == isHeader }
+            items = filteredItems
+            if fetchedList.currentIndex >= 0, fetchedList.currentIndex < fetchedList.items.count {
+                let currentItem = fetchedList.items[fetchedList.currentIndex]
+                currentIndex = filteredItems.firstIndex(where: { $0.id == currentItem.id }) ?? -1
+            } else {
+                currentIndex = -1
+            }
+            loadError = ""
+        } catch {
+            loadError = error.localizedDescription
+        }
+    }
+
+    private func templateButton(_ label: String, templateID: Int) -> some View {
+        Group {
+            if templateID == 0 {
+                Button(label) {
+                    documentController.applyHeaderFooterTemplate(
+                        isHeader: isHeader,
+                        templateID: templateID,
+                        applyTo: selectedApplyTo
+                    )
+                    reload()
+                }
+                .buttonStyle(.bordered)
+            } else {
+                Button(label) {
+                    documentController.applyHeaderFooterTemplate(
+                        isHeader: isHeader,
+                        templateID: templateID,
+                        applyTo: selectedApplyTo
+                    )
+                    reload()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+    }
+
+    private func infoLine(_ title: String, _ value: String) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 52, alignment: .leading)
+            Text(value)
+                .font(.system(size: 12))
+        }
+    }
+}
+
 private struct EditorDialogBackdrop<Content: View>: View {
     @Binding var isPresented: Bool
     @ViewBuilder var content: Content
@@ -746,4 +1122,35 @@ private func formatDecimal(_ value: Double?) -> String {
         return String(Int(value))
     }
     return String(format: "%.1f", value)
+}
+
+private let hwpUnitsPerMillimeter = 7200.0 / 25.4
+
+private func formatMillimeters(_ hwpUnits: Int) -> String {
+    let millimeters = Double(hwpUnits) / hwpUnitsPerMillimeter
+    if millimeters.rounded() == millimeters {
+        return String(Int(millimeters))
+    }
+    return String(format: "%.1f", millimeters)
+}
+
+private func parseMillimeters(_ text: String, fallback: Int) -> Int {
+    let normalized = text
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .replacingOccurrences(of: ",", with: ".")
+    guard let millimeters = Double(normalized), millimeters >= 0 else {
+        return fallback
+    }
+    return Int((millimeters * hwpUnitsPerMillimeter).rounded())
+}
+
+private func applyToLabel(_ value: Int) -> String {
+    switch value {
+    case 1:
+        return "짝수 쪽"
+    case 2:
+        return "홀수 쪽"
+    default:
+        return "양 쪽"
+    }
 }

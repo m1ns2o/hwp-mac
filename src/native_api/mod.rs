@@ -744,6 +744,24 @@ fn dispatch_operation(core: &mut DocumentCore, op: &str, payload: &Value) -> Res
         "delete_table_control" => core
             .delete_table_control_native(req_usize(payload, "sec")?, req_usize(payload, "parentPara")?, req_usize(payload, "controlIndex")?)
             .map_err(|error| error.to_string()),
+        "get_page_def" => core
+            .get_page_def_native(req_usize(payload, "sec")?)
+            .map_err(|error| error.to_string()),
+        "set_page_def" => core
+            .set_page_def_native(req_usize(payload, "sec")?, &json_field(payload, "props")?)
+            .map_err(|error| error.to_string()),
+        "set_page_def_all" => core
+            .set_page_def_all_native(&json_field(payload, "props")?)
+            .map_err(|error| error.to_string()),
+        "get_section_def" => core
+            .get_section_def_native(req_usize(payload, "sec")?)
+            .map_err(|error| error.to_string()),
+        "set_section_def" => core
+            .set_section_def_native(req_usize(payload, "sec")?, &json_field(payload, "props")?)
+            .map_err(|error| error.to_string()),
+        "set_section_def_all" => core
+            .set_section_def_all_native(&json_field(payload, "props")?)
+            .map_err(|error| error.to_string()),
         "get_header_footer" => core
             .get_header_footer_native(
                 req_usize(payload, "sec")?,
@@ -792,6 +810,13 @@ fn dispatch_operation(core: &mut DocumentCore, op: &str, payload: &Value) -> Res
                 req_usize(payload, "para")?,
                 req_usize(payload, "controlIndex")?,
                 &json_field(payload, "value")?,
+            )
+            .map_err(|error| error.to_string()),
+        "insert_footnote" => core
+            .insert_footnote_native(
+                req_usize(payload, "sec")?,
+                req_usize(payload, "para")?,
+                req_usize(payload, "charOffset")?,
             )
             .map_err(|error| error.to_string()),
         "get_bookmarks" => core.get_bookmarks_native().map_err(|error| error.to_string()),

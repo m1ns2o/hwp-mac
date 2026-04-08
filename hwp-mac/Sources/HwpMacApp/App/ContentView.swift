@@ -85,6 +85,17 @@ struct ContentView: View {
                     .zIndex(20)
                 }
 
+                if activeDialog == .pageSetup {
+                    PageSetupDialogView(
+                        documentController: documentController,
+                        isPresented: Binding(
+                            get: { activeDialog == .pageSetup },
+                            set: { if !$0 { activeDialog = nil } }
+                        )
+                    )
+                    .zIndex(20)
+                }
+
                 if activeDialog == .paraShape {
                     ParaShapeDialogView(
                         documentController: documentController,
@@ -136,6 +147,30 @@ struct ContentView: View {
                             get: { activeDialog == .fields },
                             set: { if !$0 { activeDialog = nil } }
                         )
+                    )
+                    .zIndex(20)
+                }
+
+                if activeDialog == .headerSetup {
+                    HeaderFooterDialogView(
+                        documentController: documentController,
+                        isPresented: Binding(
+                            get: { activeDialog == .headerSetup },
+                            set: { if !$0 { activeDialog = nil } }
+                        ),
+                        isHeader: true
+                    )
+                    .zIndex(20)
+                }
+
+                if activeDialog == .footerSetup {
+                    HeaderFooterDialogView(
+                        documentController: documentController,
+                        isPresented: Binding(
+                            get: { activeDialog == .footerSetup },
+                            set: { if !$0 { activeDialog = nil } }
+                        ),
+                        isHeader: false
                     )
                     .zIndex(20)
                 }

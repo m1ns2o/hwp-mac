@@ -387,6 +387,65 @@ struct RHWPTableProperties: Codable {
     let keepWithAnchor: Bool
 }
 
+struct RHWPPageDefinition: Codable {
+    let width: Int
+    let height: Int
+    let marginLeft: Int
+    let marginRight: Int
+    let marginTop: Int
+    let marginBottom: Int
+    let marginHeader: Int
+    let marginFooter: Int
+    let marginGutter: Int
+    let landscape: Bool
+    let binding: Int
+}
+
+struct RHWPSectionDefinition: Codable {
+    let pageNum: Int
+    let pageNumType: Int
+    let pictureNum: Int
+    let tableNum: Int
+    let equationNum: Int
+    let columnSpacing: Int
+    let defaultTabSpacing: Int
+    let hideHeader: Bool
+    let hideFooter: Bool
+    let hideMasterPage: Bool
+    let hideBorder: Bool
+    let hideFill: Bool
+    let hideEmptyLine: Bool
+}
+
+struct RHWPHeaderFooterInfo: Codable {
+    let ok: Bool
+    let exists: Bool
+    let kind: String?
+    let applyTo: Int?
+    let label: String?
+    let paraIndex: Int?
+    let controlIndex: Int?
+    let paraCount: Int?
+    let text: String?
+}
+
+struct RHWPHeaderFooterListItem: Codable, Identifiable, Hashable {
+    let sectionIdx: Int
+    let isHeader: Bool
+    let applyTo: Int
+    let label: String
+
+    var id: String {
+        "\(sectionIdx):\(isHeader):\(applyTo)"
+    }
+}
+
+struct RHWPHeaderFooterListResult: Codable {
+    let ok: Bool
+    let items: [RHWPHeaderFooterListItem]
+    let currentIndex: Int
+}
+
 struct RHWPTableDimensionsResult: Codable {
     let rowCount: Int
     let colCount: Int

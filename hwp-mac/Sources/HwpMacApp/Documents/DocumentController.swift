@@ -286,29 +286,16 @@ final class DocumentController: ObservableObject {
                 )
                 selection = RHWPSelectionState(anchor: start, focus: end)
                 currentCaret = try refreshedCaret(for: end)
+                statusMessage = "현재 컨테이너 전체를 선택했습니다."
             } else {
-                let count: RHWPCountResult = try session.decodeResult(
-                    RHWPCountResult.self,
-                    operation: "get_paragraph_count",
-                    payload: ["sec": caret.sectionIndex]
-                )
-                let lastPara = max(count.count - 1, 0)
-                let lastLength: RHWPLengthResult = try session.decodeResult(
-                    RHWPLengthResult.self,
-                    operation: "get_paragraph_length",
-                    payload: [
-                        "sec": caret.sectionIndex,
-                        "para": lastPara,
-                    ]
-                )
-                let start = RHWPCaretPosition(sectionIndex: caret.sectionIndex, paragraphIndex: 0, charOffset: 0)
-                let end = RHWPCaretPosition(sectionIndex: caret.sectionIndex, paragraphIndex: lastPara, charOffset: lastLength.length)
+                let start = RHWPCaretPosition(sectionIndex: 0, paragraphIndex: 0, charOffset: 0)
+                let end = try documentEndPosition()
                 selection = RHWPSelectionState(anchor: start, focus: end)
                 currentCaret = try refreshedCaret(for: end)
+                statusMessage = "문서 전체를 선택했습니다."
             }
 
             syncDerivedState()
-            statusMessage = "현재 컨테이너 전체를 선택했습니다."
         } catch {
             statusMessage = error.localizedDescription
         }
@@ -606,22 +593,32 @@ final class DocumentController: ObservableObject {
         }
 
         do {
-            let result: RHWPClipboardCopyResult = try session.decodeResult(
-                RHWPClipboardCopyResult.self,
-                operation: "copy_selection",
-                payload: selectionPayload(for: bounds)
-            )
-
-            guard result.ok else {
-                statusMessage = "선택 영역을 복사하지 못했습니다."
+            let slices = try selectionSlices(for: bounds)
+            guard !slices.isEmpty else {
+                statusMessage = "복사할 선택 영역이 없습니다."
                 return false
             }
 
-            let plainText = result.text ?? ""
+            var texts: [String] = []
+            for slice in slices {
+                let result: RHWPClipboardCopyResult = try session.decodeResult(
+                    RHWPClipboardCopyResult.self,
+                    operation: "copy_selection",
+                    payload: selectionPayload(for: slice)
+                )
+
+                guard result.ok else {
+                    statusMessage = "선택 영역을 복사하지 못했습니다."
+                    return false
+                }
+                texts.append(result.text ?? "")
+            }
+
+            let plainText = texts.joined(separator: slices.count > 1 ? "\n" : "")
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             pasteboard.setString(plainText, forType: .string)
-            lastInternalClipboardText = plainText
+            lastInternalClipboardText = slices.count == 1 ? plainText : nil
             statusMessage = "선택 영역을 복사했습니다."
             return true
         } catch {
@@ -1018,15 +1015,118 @@ final class DocumentController: ObservableObject {
         compositionUndoSnapshot = nil
     }
 
-    func applyHeaderFooterTemplate(isHeader: Bool, templateID: Int) {
-        guard let session else { return }
+    func fetchPageSetupState() throws -> (page: RHWPPageDefinition, section: RHWPSectionDefinition) {
+        guard let session else { throw NativeBridgeError.missingSession }
+        let sectionIndex = currentEditingSectionIndex()
+        let page = try session.decodeResult(
+            RHWPPageDefinition.self,
+            operation: "get_page_def",
+            payload: ["sec": sectionIndex]
+        )
+        let section = try session.decodeResult(
+            RHWPSectionDefinition.self,
+            operation: "get_section_def",
+            payload: ["sec": sectionIndex]
+        )
+        return (page, section)
+    }
 
-        let sectionIndex: Int
-        if pageInfos.indices.contains(selectedPageIndex) {
-            sectionIndex = pageInfos[selectedPageIndex].sectionIndex
-        } else {
-            sectionIndex = currentCaret?.position.sectionIndex ?? 0
+    func applyPageSetup(
+        pageDefinition: RHWPPageDefinition,
+        sectionDefinition: RHWPSectionDefinition,
+        applyToAllSections: Bool
+    ) {
+        guard let session else { return }
+        let sectionIndex = currentEditingSectionIndex()
+
+        let pageProps: [String: Any] = [
+            "width": pageDefinition.width,
+            "height": pageDefinition.height,
+            "marginLeft": pageDefinition.marginLeft,
+            "marginRight": pageDefinition.marginRight,
+            "marginTop": pageDefinition.marginTop,
+            "marginBottom": pageDefinition.marginBottom,
+            "marginHeader": pageDefinition.marginHeader,
+            "marginFooter": pageDefinition.marginFooter,
+            "marginGutter": pageDefinition.marginGutter,
+            "landscape": pageDefinition.landscape,
+            "binding": pageDefinition.binding,
+        ]
+
+        let sectionProps: [String: Any] = [
+            "pageNum": sectionDefinition.pageNum,
+            "pageNumType": sectionDefinition.pageNumType,
+            "pictureNum": sectionDefinition.pictureNum,
+            "tableNum": sectionDefinition.tableNum,
+            "equationNum": sectionDefinition.equationNum,
+            "columnSpacing": sectionDefinition.columnSpacing,
+            "defaultTabSpacing": sectionDefinition.defaultTabSpacing,
+            "hideHeader": sectionDefinition.hideHeader,
+            "hideFooter": sectionDefinition.hideFooter,
+            "hideMasterPage": sectionDefinition.hideMasterPage,
+            "hideBorder": sectionDefinition.hideBorder,
+            "hideFill": sectionDefinition.hideFill,
+            "hideEmptyLine": sectionDefinition.hideEmptyLine,
+        ]
+
+        let successMessage = applyToAllSections
+            ? "편집 용지를 모든 구역에 적용했습니다."
+            : "편집 용지를 현재 구역에 적용했습니다."
+
+        performMutation(successMessage: successMessage) { _ in
+            if applyToAllSections {
+                _ = try session.perform(operation: "set_page_def_all", payload: ["props": pageProps])
+                _ = try session.perform(operation: "set_section_def_all", payload: ["props": sectionProps])
+            } else {
+                _ = try session.perform(
+                    operation: "set_page_def",
+                    payload: [
+                        "sec": sectionIndex,
+                        "props": pageProps,
+                    ]
+                )
+                _ = try session.perform(
+                    operation: "set_section_def",
+                    payload: [
+                        "sec": sectionIndex,
+                        "props": sectionProps,
+                    ]
+                )
+            }
+
+            return self.currentCaret?.position
         }
+    }
+
+    func fetchHeaderFooterInfo(isHeader: Bool, applyTo: Int) throws -> RHWPHeaderFooterInfo {
+        guard let session else { throw NativeBridgeError.missingSession }
+        return try session.decodeResult(
+            RHWPHeaderFooterInfo.self,
+            operation: "get_header_footer",
+            payload: [
+                "sec": currentEditingSectionIndex(),
+                "isHeader": isHeader,
+                "applyTo": applyTo,
+            ]
+        )
+    }
+
+    func fetchHeaderFooterList(isHeader: Bool, applyTo: Int) throws -> RHWPHeaderFooterListResult {
+        guard let session else { throw NativeBridgeError.missingSession }
+        return try session.decodeResult(
+            RHWPHeaderFooterListResult.self,
+            operation: "get_header_footer_list",
+            payload: [
+                "sec": currentEditingSectionIndex(),
+                "isHeader": isHeader,
+                "applyTo": applyTo,
+            ]
+        )
+    }
+
+    func applyHeaderFooterTemplate(isHeader: Bool, templateID: Int, applyTo: Int = 0) {
+        guard let session else { return }
+        let sectionIndex = currentEditingSectionIndex()
 
         let title = isHeader ? "머리말" : "꼬리말"
         let successMessage = templateID == 0
@@ -1040,12 +1140,33 @@ final class DocumentController: ObservableObject {
                 payload: [
                     "sec": sectionIndex,
                     "isHeader": isHeader,
-                    "applyTo": 0,
+                    "applyTo": applyTo,
                     "templateId": templateID,
                 ]
             )
             guard result.ok else {
                 throw NativeBridgeError.nativeFailure(result.error ?? "\(title) 템플릿을 적용하지 못했습니다.")
+            }
+            return self.currentCaret?.position
+        }
+    }
+
+    func deleteHeaderFooter(isHeader: Bool, applyTo: Int) {
+        guard let session else { return }
+        let title = isHeader ? "머리말" : "꼬리말"
+
+        performMutation(successMessage: "\(title)을 삭제했습니다.") { _ in
+            let result: RHWPOperationStatus = try session.decodeResult(
+                RHWPOperationStatus.self,
+                operation: "delete_header_footer",
+                payload: [
+                    "sec": self.currentEditingSectionIndex(),
+                    "isHeader": isHeader,
+                    "applyTo": applyTo,
+                ]
+            )
+            guard result.ok else {
+                throw NativeBridgeError.nativeFailure(result.error ?? "\(title)을 삭제하지 못했습니다.")
             }
             return self.currentCaret?.position
         }
@@ -1110,6 +1231,19 @@ final class DocumentController: ObservableObject {
 
         performMutation(successMessage: "단 나누기를 삽입했습니다.") { session in
             _ = try session.perform(operation: "insert_column_break", payload: self.selectionPayload(for: caret))
+            return caret
+        }
+    }
+
+    func insertFootnote() {
+        guard let caret = currentCaret?.position else { return }
+        guard caret.cellContext == nil else {
+            statusMessage = "각주는 현재 본문 위치에서만 삽입할 수 있습니다."
+            return
+        }
+
+        performMutation(successMessage: "각주를 삽입했습니다.") { session in
+            _ = try session.perform(operation: "insert_footnote", payload: self.selectionPayload(for: caret))
             return caret
         }
     }
@@ -1310,6 +1444,29 @@ final class DocumentController: ObservableObject {
 
     private func deleteSelection(status: String? = nil) {
         guard let bounds = normalizedSelection() else { return }
+        let isCrossSectionBodySelection = bounds.start.cellContext == nil && bounds.start.sectionIndex != bounds.end.sectionIndex
+        if isCrossSectionBodySelection {
+            do {
+                let slices = try selectionSlices(for: bounds)
+                guard let target = slices.first?.start else { return }
+                clearSelection()
+
+                performMutation(successMessage: status) { session in
+                    for slice in slices.reversed() {
+                        let _: RHWPMutationCursorResult = try session.decodeResult(
+                            RHWPMutationCursorResult.self,
+                            operation: "delete_range",
+                            payload: self.selectionPayload(for: slice)
+                        )
+                    }
+                    return target
+                }
+            } catch {
+                statusMessage = error.localizedDescription
+            }
+            return
+        }
+
         clearSelection()
 
         performMutation(successMessage: status, refreshPolicy: .editing) { session in
@@ -1326,6 +1483,43 @@ final class DocumentController: ObservableObject {
         guard let bounds = normalizedSelection() else {
             if !text.isEmpty {
                 insertText(text)
+            }
+            return
+        }
+
+        let isCrossSectionBodySelection = bounds.start.cellContext == nil && bounds.start.sectionIndex != bounds.end.sectionIndex
+        if isCrossSectionBodySelection {
+            do {
+                let slices = try selectionSlices(for: bounds)
+                guard let insertionPoint = slices.first?.start else { return }
+                clearSelection()
+
+                performMutation(successMessage: nil) { session in
+                    for slice in slices.reversed() {
+                        let _: RHWPMutationCursorResult = try session.decodeResult(
+                            RHWPMutationCursorResult.self,
+                            operation: "delete_range",
+                            payload: self.selectionPayload(for: slice)
+                        )
+                    }
+
+                    guard !text.isEmpty else {
+                        return insertionPoint
+                    }
+
+                    var insertPayload = self.selectionPayload(for: insertionPoint)
+                    insertPayload["text"] = text
+                    _ = try session.perform(operation: "insert_text", payload: insertPayload)
+
+                    return RHWPCaretPosition(
+                        sectionIndex: insertionPoint.sectionIndex,
+                        paragraphIndex: insertionPoint.paragraphIndex,
+                        charOffset: insertionPoint.charOffset + text.count,
+                        cellContext: insertionPoint.cellContext
+                    )
+                }
+            } catch {
+                statusMessage = error.localizedDescription
             }
             return
         }
@@ -1630,11 +1824,17 @@ final class DocumentController: ObservableObject {
             selectionRects = []
             return
         }
-        selectionRects = try session.decodeResult(
-            [RHWPSelectionRect].self,
-            operation: "get_selection_rects",
-            payload: selectionPayload(for: bounds)
-        )
+        let slices = try selectionSlices(for: bounds)
+        var rects: [RHWPSelectionRect] = []
+        for slice in slices {
+            let sliceRects = try session.decodeResult(
+                [RHWPSelectionRect].self,
+                operation: "get_selection_rects",
+                payload: selectionPayload(for: slice)
+            )
+            rects.append(contentsOf: sliceRects)
+        }
+        selectionRects = rects
     }
 
     private func refreshFormattingState() throws {
@@ -1747,12 +1947,12 @@ final class DocumentController: ObservableObject {
     }
 
     private func sameSelectionContainer(_ lhs: RHWPCaretPosition, _ rhs: RHWPCaretPosition) -> Bool {
-        guard lhs.sectionIndex == rhs.sectionIndex else { return false }
         switch (lhs.cellContext, rhs.cellContext) {
         case (nil, nil):
             return true
         case let (left?, right?):
-            return left.parentParaIndex == right.parentParaIndex
+            return lhs.sectionIndex == rhs.sectionIndex
+                && left.parentParaIndex == right.parentParaIndex
                 && left.controlIndex == right.controlIndex
                 && left.cellIndex == right.cellIndex
         default:
@@ -1761,6 +1961,9 @@ final class DocumentController: ObservableObject {
     }
 
     private func compare(_ lhs: RHWPCaretPosition, _ rhs: RHWPCaretPosition) -> Int {
+        if lhs.sectionIndex != rhs.sectionIndex {
+            return lhs.sectionIndex < rhs.sectionIndex ? -1 : 1
+        }
         if lhs.paragraphIndex != rhs.paragraphIndex {
             return lhs.paragraphIndex < rhs.paragraphIndex ? -1 : 1
         }
@@ -1808,6 +2011,105 @@ final class DocumentController: ObservableObject {
             row: currentCellInfo.row,
             column: currentCellInfo.col
         )
+    }
+
+    private func documentEndPosition() throws -> RHWPCaretPosition {
+        guard let session else { throw NativeBridgeError.missingSession }
+        let sectionCount = max(documentInfo?.sectionCount ?? 1, 1)
+
+        for sectionIndex in stride(from: sectionCount - 1, through: 0, by: -1) {
+            let count = try paragraphCount(in: sectionIndex, session: session)
+            guard count > 0 else { continue }
+            let lastParagraphIndex = count - 1
+            let lastLength = try paragraphLength(
+                in: sectionIndex,
+                paragraphIndex: lastParagraphIndex,
+                session: session
+            )
+            return RHWPCaretPosition(
+                sectionIndex: sectionIndex,
+                paragraphIndex: lastParagraphIndex,
+                charOffset: lastLength
+            )
+        }
+
+        return RHWPCaretPosition(sectionIndex: 0, paragraphIndex: 0, charOffset: 0)
+    }
+
+    private func selectionSlices(for bounds: SelectionBounds) throws -> [SelectionBounds] {
+        guard sameSelectionContainer(bounds.start, bounds.end) else {
+            return []
+        }
+
+        if bounds.start.cellContext != nil || bounds.start.sectionIndex == bounds.end.sectionIndex {
+            return [bounds]
+        }
+
+        guard let session else { throw NativeBridgeError.missingSession }
+
+        var slices: [SelectionBounds] = []
+        for sectionIndex in bounds.start.sectionIndex...bounds.end.sectionIndex {
+            let paragraphCount = try paragraphCount(in: sectionIndex, session: session)
+            guard paragraphCount > 0 else { continue }
+
+            let startPara = sectionIndex == bounds.start.sectionIndex ? bounds.start.paragraphIndex : 0
+            let startChar = sectionIndex == bounds.start.sectionIndex ? bounds.start.charOffset : 0
+
+            let endPara: Int
+            let endChar: Int
+            if sectionIndex == bounds.end.sectionIndex {
+                endPara = bounds.end.paragraphIndex
+                endChar = bounds.end.charOffset
+            } else {
+                endPara = paragraphCount - 1
+                endChar = try paragraphLength(in: sectionIndex, paragraphIndex: endPara, session: session)
+            }
+
+            let start = RHWPCaretPosition(
+                sectionIndex: sectionIndex,
+                paragraphIndex: startPara,
+                charOffset: startChar
+            )
+            let end = RHWPCaretPosition(
+                sectionIndex: sectionIndex,
+                paragraphIndex: endPara,
+                charOffset: endChar
+            )
+
+            if compare(start, end) < 0 {
+                slices.append(SelectionBounds(start: start, end: end))
+            }
+        }
+
+        return slices
+    }
+
+    private func paragraphCount(in sectionIndex: Int, session: EditorSession) throws -> Int {
+        let count: RHWPCountResult = try session.decodeResult(
+            RHWPCountResult.self,
+            operation: "get_paragraph_count",
+            payload: ["sec": sectionIndex]
+        )
+        return count.count
+    }
+
+    private func paragraphLength(in sectionIndex: Int, paragraphIndex: Int, session: EditorSession) throws -> Int {
+        let length: RHWPLengthResult = try session.decodeResult(
+            RHWPLengthResult.self,
+            operation: "get_paragraph_length",
+            payload: [
+                "sec": sectionIndex,
+                "para": paragraphIndex,
+            ]
+        )
+        return length.length
+    }
+
+    private func currentEditingSectionIndex() -> Int {
+        if pageInfos.indices.contains(selectedPageIndex) {
+            return pageInfos[selectedPageIndex].sectionIndex
+        }
+        return currentCaret?.position.sectionIndex ?? 0
     }
 
     private func position(from hit: RHWPHitTestResult) -> RHWPCaretPosition {
